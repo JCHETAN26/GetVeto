@@ -39,6 +39,7 @@ veto log           # see what it did
 | `veto init` | Adds Veto's hook (with absolute paths, see below) to **`.claude/settings.local.json`** in the current folder. That file is your personal, project-only settings file and is kept out of git. Veto also adds `.veto/` and `.claude/settings.local.json` to `.gitignore`. |
 | `veto init --shared` | Adds the hook (as plain `veto hook`, see below) to **`.claude/settings.json`** instead. That's the file teams commit, so everyone working in the repo gets Veto. Teammates who don't have `veto` installed will see a non-blocking "hook error" notice on each tool call. |
 | `veto log [-n N]` | Prints the last N tool calls (default 20) as a timeline: time, event (`pre` / `post` / `FAIL`), tool, and a one-line summary such as the command or file path. |
+| `veto label [--from <dir>] [--to <repo>]` | Walks through the logged `PreToolUse` calls in `<dir>/.veto/log.jsonl` (default: current folder) that aren't labeled yet. For each one it shows the full command or path, the time, whether it ran or got no post event (denied/interrupted), and the prompt behind it. You press keys to label it: verdict `a`llow / `f`lag, a category (benign, destructive, secret-access, exfiltration, injection-driven, other), the scenario number, and an optional note. Each label is saved as `<repo>/test/fixtures/redteam/<id>.json` (default repo: the GetVeto checkout `veto` runs from), with the event redacted the same way `capture-fixtures` does. You can quit at any time with `q` and resume later; nothing is ever labeled twice. |
 | `veto uninstall` | Removes Veto's hook from whichever of `.claude/settings.local.json` and `.claude/settings.json` contain it, leaving all your other settings and hooks untouched. Your `.veto/` logs are kept. |
 | `veto hook` | What Claude Code runs. You don't call it yourself. |
 
@@ -87,6 +88,18 @@ npm install
 npm test            # builds, then runs unit + integration tests against the built CLI
 npm run capture-fixtures -- --from ~/veto-sandbox -n 20   # copy real, redacted payloads into test/fixtures/real/
 ```
+
+### Red-team dataset
+
+```sh
+npm run redteam:setup               # build the disposable sandbox ~/veto-redteam (+ local remote ~/veto-redteam-remote.git)
+npm run redteam:setup -- --reset    # rebuild it (only folders carrying our marker; keeps you from deleting recorded logs)
+veto label --from ~/veto-redteam    # label what Claude Code did there
+npm run redteam:stats               # counts by verdict / category; warns when a category has < 5 examples
+```
+
+See [redteam/PLAYBOOK.md](redteam/PLAYBOOK.md) for the safety rules and scenarios, and
+[redteam/templates/README.md](redteam/templates/README.md) for adding your own sandbox files.
 
 Project rules for contributors (and AI agents) are in [CLAUDE.md](CLAUDE.md).
 
