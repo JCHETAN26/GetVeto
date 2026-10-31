@@ -10,6 +10,7 @@
 //     still exit 0 with empty stdout. We never exit 2 and never hang.
 import { join } from "node:path";
 import { appendPrivate, ensureVetoDir, ERROR_FILE, LOG_FILE } from "./storage.js";
+import { truncateEvent } from "./truncate.js";
 
 /** Hard ceiling on how long we wait for stdin before giving up and allowing. */
 export const STDIN_TIMEOUT_MS = 2000;
@@ -53,8 +54,15 @@ export function resolveProjectRoot(
   return fallbackCwd;
 }
 
+/**
+ * One log line. Oversized strings in tool_input / tool_response are capped (see truncate.ts);
+ * when that happens the entry lists the affected paths in `truncated`.
+ */
 export function formatLogLine(event: Record<string, unknown>, now: Date): string {
-  return JSON.stringify({ ts: now.toISOString(), event }) + "\n";
+  const t = truncateEvent(event);
+  const entry: Record<string, unknown> = { ts: now.toISOString(), event: t.event };
+  if (t.truncated.length > 0) entry.truncated = t.truncated;
+  return JSON.stringify(entry) + "\n";
 }
 
 function recordError(root: string, message: string): void {

@@ -1,5 +1,6 @@
 // Spawns the BUILT CLI (dist/cli.js). Run `npm test`, which builds first.
 import { chmodSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { loadFixtures, runCli, tempProject } from "../helpers.js";
@@ -120,11 +121,30 @@ describe("veto hook robustness (fail open)", () => {
     expect(readFileSync(join(root, ".veto", "errors.log"), "utf8")).toContain("stdin not closed");
   });
 
-  it("large payload (5 MB) is logged", async () => {
+  it("large payload (5 MB) is logged, capped to a small line", async () => {
     const root = tempProject();
     const big = JSON.stringify({ hook_event_name: "PreToolUse", tool_name: "Write", tool_input: { content: "x".repeat(5_000_000) } });
     const r = await runCli(["hook"], { cwd: root, stdin: big, env: { CLAUDE_PROJECT_DIR: root } });
     expect(r.code).toBe(0);
-    expect(readLog(root)).toHaveLength(1);
+    const log = readLog(root) as any[];
+    expect(log).toHaveLength(1);
+    expect(log[0].truncated).toEqual(["tool_input.content"]);
+    expect(readFileSync(join(root, ".veto", "log.jsonl"), "utf8").length).toBeLessThan(5_000);
+  });
+
+  it("real Read fixture with a 1 MB file body: built CLI logs it capped with sha256", async () => {
+    const realRead = fixtures.find((f) => f.name.includes("PostToolUse-Read"));
+    if (!realRead) return; // only runs once a real Read capture exists
+    const root = tempProject();
+    const event = structuredClone(realRead.event) as any;
+    const content = "0123456789abcdef".repeat(65_536);
+    event.tool_response.file.content = content;
+    const r = await runCli(["hook"], { cwd: root, stdin: JSON.stringify(event), env: { CLAUDE_PROJECT_DIR: root } });
+    expect(r.code).toBe(0);
+    expect(r.stdout).toBe("");
+    const entry = readLog(root)[0] as any;
+    expect(entry.truncated).toEqual(["tool_response.file.content"]);
+    const sha = createHash("sha256").update(content).digest("hex");
+    expect(entry.event.tool_response.file.content).toContain(`original_bytes=${content.length} sha256=${sha}`);
   });
 });

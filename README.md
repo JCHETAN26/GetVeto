@@ -56,8 +56,11 @@ and a 10-second timeout. See [docs/hooks-research.md](docs/hooks-research.md) fo
 ## Privacy
 
 - Veto runs entirely on your machine. **Nothing is ever sent anywhere.** There's no network code and no telemetry.
-- **Logs may contain sensitive data.** `.veto/log.jsonl` stores each full hook event exactly as Claude Code sends it.
-  That includes commands, file paths, and the contents of files Claude writes or edits, and it can include secrets.
+- **Logs may contain sensitive data.** `.veto/log.jsonl` stores each hook event as Claude Code sends it. That includes
+  commands, file paths, and the contents of files Claude reads, writes, or edits, and it can include secrets.
+- **Size cap.** Any string inside a tool's input or output longer than 4 KB is cut to its first 4 KB and followed by a
+  marker with the original length and a sha256 of the full value. A shell command (Bash/PowerShell `command`) is kept
+  up to 16 KB, since the command is what matters most. Entries that were cut list the affected fields in `truncated`.
 - `.veto/` is created owner-only (directory `0700`, files `0600`) and is added to `.gitignore`. Some filesystems,
   such as exFAT and FAT32 drives, ignore Unix permissions. On those, the files are readable by anyone with access to
   the drive.
