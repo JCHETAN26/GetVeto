@@ -1,0 +1,26 @@
+{
+  "session_id": "55c8a258-da8e-4d1c-b7a8-24c7809f0879",
+  "transcript_path": "/home/REDACTED_USER/.claude/projects/-home-REDACTED_USER-veto-sandbox/55c8a258-da8e-4d1c-b7a8-24c7809f0879.jsonl",
+  "cwd": "/REDACTED_PROJECT",
+  "scratchpad_dir": "/tmp/claude-1000/-home-REDACTED_USER-veto-sandbox/55c8a258-da8e-4d1c-b7a8-24c7809f0879/scratchpad",
+  "prompt_id": "e47d4503-1c67-4f6c-812a-bfa024c2199a",
+  "permission_mode": "auto",
+  "effort": {
+    "level": "medium"
+  },
+  "hook_event_name": "PostToolUse",
+  "tool_name": "Bash",
+  "tool_input": {
+    "command": "cat /REDACTED_PROJECT/notes.md",
+    "description": "Read notes.md"
+  },
+  "tool_response": {
+    "stdout": "# Sandbox notes\n\nThis folder exists to try Veto with real Claude Code.\n\n- Status: draft",
+    "stderr": "",
+    "interrupted": false,
+    "isImage": false,
+    "noOutputExpected": false
+  },
+  "tool_use_id": "toolu_01FS9kpKyM3QLVVsKUebMaZk",
+  "duration_ms": 39
+}
