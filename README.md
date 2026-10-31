@@ -50,8 +50,8 @@ How `init` and `uninstall` behave:
 - **Transparent.** Both commands print every file they create, change, or delete.
 - **Valid JSON only.** If a settings file isn't valid JSON, Veto refuses to touch it.
 
-Veto registers itself on Claude Code's `PreToolUse`, `PostToolUse` and `PostToolUseFailure` events, with matcher `*`
-and a 10-second timeout. See [docs/hooks-research.md](docs/hooks-research.md) for how Claude Code hooks work.
+Veto registers itself on Claude Code's `PreToolUse`, `PostToolUse` and `PostToolUseFailure` events (matcher `*`), and
+on `UserPromptSubmit` (so a tool call can be traced back to the prompt that caused it), each with a 10-second timeout. See [docs/hooks-research.md](docs/hooks-research.md) for how Claude Code hooks work.
 
 ### How the hook command is written
 
@@ -70,7 +70,8 @@ non-blocking "hook error" and nothing is logged.
 
 - Veto runs entirely on your machine. **Nothing is ever sent anywhere.** There's no network code and no telemetry.
 - **Logs may contain sensitive data.** `.veto/log.jsonl` stores each hook event as Claude Code sends it. That includes
-  commands, file paths, and the contents of files Claude reads, writes, or edits, and it can include secrets.
+  commands, the prompts you type, file paths, and the contents of files Claude reads, writes, or edits, and it can
+  include secrets.
 - **Size cap.** Any string inside a tool's input or output longer than 4 KB is cut to its first 4 KB and followed by a
   marker with the original length and a sha256 of the full value. A shell command (Bash/PowerShell `command`) is kept
   up to 16 KB, since the command is what matters most. Entries that were cut list the affected fields in `truncated`.

@@ -22,7 +22,8 @@ describe("addVetoHooks", () => {
     const { settings, added } = addVetoHooks({});
     expect(added).toEqual([...VETO_EVENTS]);
     for (const ev of VETO_EVENTS) {
-      expect((settings.hooks as any)[ev]).toEqual([{ matcher: "*", hooks: [vetoHandler()] }]);
+      const group = ev === "UserPromptSubmit" ? { hooks: [vetoHandler()] } : { matcher: "*", hooks: [vetoHandler()] };
+      expect((settings.hooks as any)[ev]).toEqual([group]);
     }
   });
 
@@ -52,7 +53,7 @@ describe("addVetoHooks", () => {
   it("partial install (only PreToolUse has Veto): adds the missing events only", () => {
     const input = { hooks: { PreToolUse: [{ matcher: "*", hooks: [vetoHandler()] }] } };
     const { added } = addVetoHooks(input);
-    expect(added).toEqual(["PostToolUse", "PostToolUseFailure"]);
+    expect(added).toEqual(["PostToolUse", "PostToolUseFailure", "UserPromptSubmit"]);
   });
 
   it("rejects malformed shapes instead of clobbering them", () => {
@@ -73,7 +74,7 @@ describe("removeVetoHooks", () => {
     const installed = addVetoHooks(original).settings;
     const r = removeVetoHooks(installed);
     expect(r.changed).toBe(true);
-    expect(r.removed).toEqual({ PreToolUse: 1, PostToolUse: 1, PostToolUseFailure: 1 });
+    expect(r.removed).toEqual({ PreToolUse: 1, PostToolUse: 1, PostToolUseFailure: 1, UserPromptSubmit: 1 });
     expect(r.settings).toEqual(original);
   });
 
@@ -147,7 +148,10 @@ describe("absolute handler + in-place upgrade", () => {
     const up = addVetoHooks(old, abs);
     expect(up.added).toEqual([]);
     expect(up.upgraded).toEqual([...VETO_EVENTS]);
-    for (const ev of VETO_EVENTS) expect((up.settings.hooks as any)[ev]).toEqual([{ matcher: "*", hooks: [abs] }]);
+    for (const ev of VETO_EVENTS) {
+      const group = ev === "UserPromptSubmit" ? { hooks: [abs] } : { matcher: "*", hooks: [abs] };
+      expect((up.settings.hooks as any)[ev]).toEqual([group]);
+    }
     const again = addVetoHooks(up.settings, abs);
     expect(again.added).toEqual([]);
     expect(again.upgraded).toEqual([]);

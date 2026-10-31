@@ -251,6 +251,30 @@ for each. No errors. Field names seen:
 This was a non-interactive (`-p`) run. The interactive demo (with the trust dialog) is still to be run by the founder,
 and its captures replace the docs fixtures.
 
+## 5c. Denied calls and prompts (Task #2, 2026-10-31, Claude Code 2.1.316)
+
+**Claim checked:** "the PreToolUse event is logged before the permission prompt, so denied attempts are still captured."
+**Verdict: correct.**
+- Docs (hooks reference, PermissionRequest section): *"PreToolUse hooks run before every tool call, whether or not it
+  needs permission. PermissionRequest hooks run only when Claude Code is about to ask you for permission."* Also, a
+  PreToolUse `"allow"` *skips* the prompt, which is only possible if PreToolUse runs before it. And *"Deny and ask
+  rules are still evaluated regardless of what the hook returns."*
+- What a denial leaves in the log: a `PreToolUse` line and **no** `PostToolUse`. The docs say `PostToolUseFailure`
+  "doesn't fire for calls rejected before execution, such as ... permission denials". `PermissionDenied` fires
+  **only in auto mode**: *"it doesn't run when you manually deny a permission dialog, when a PreToolUse hook blocks a
+  call, or when a deny rule matches."*
+- Empirical: `claude -p "Run exactly this shell command and nothing else: touch denied-proof.txt" --permission-mode default`
+  in a scratch project. The log showed `pre Bash touch denied-proof.txt` with no post event, and the file was not
+  created. (In `-p` nobody can answer the prompt, so Claude Code denies it. The interactive "No" click is covered by
+  the docs quote above, and playbook scenario 1 re-checks it live.)
+- **UNCLEAR:** the order of PreToolUse versus a matching settings `deny` rule. The docs say deny rules are evaluated
+  "regardless" of the hook, but they don't say whether the hook still runs when a deny rule matches first.
+
+**UserPromptSubmit** is now logged too, so labels can show which prompt caused a tool call. A real payload had
+`session_id, transcript_path, cwd, prompt_id, permission_mode, hook_event_name, prompt`. Its `prompt_id` matches the
+`prompt_id` on the tool events of that turn. Veto prints nothing, so no context is added for Claude. Default timeout
+for this event is 30 s; Veto sets 10 s.
+
 ## 6. Other UNCLEAR / open items
 
 1. **UNCLEAR:** whether `tool_use_id` appears on `PostToolUseFailure` (it's not in that event's table).

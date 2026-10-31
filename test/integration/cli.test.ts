@@ -20,12 +20,19 @@ describe("veto init", () => {
     const r = await runCli(["init"], { cwd: root });
     expect(r.code).toBe(0);
     const s = readJson(join(root, LOCAL));
-    expect(s).toEqual({ hooks: { PreToolUse: [vetoGroup], PostToolUse: [vetoGroup], PostToolUseFailure: [vetoGroup] } });
+    expect(s).toEqual({
+      hooks: {
+        PreToolUse: [vetoGroup],
+        PostToolUse: [vetoGroup],
+        PostToolUseFailure: [vetoGroup],
+        UserPromptSubmit: [{ hooks: [localHandler] }], // no matcher: this event doesn't support one
+      },
+    });
     expect(existsSync(join(root, SHARED))).toBe(false);
     expect(readFileSync(join(root, ".gitignore"), "utf8")).toBe(".veto/\n.claude/settings.local.json\n");
     expect(statSync(join(root, ".veto")).isDirectory()).toBe(true);
     expect(r.stdout).toContain(`created:  ${join(root, LOCAL)}`);
-    expect(r.stdout).toContain("PreToolUse, PostToolUse, PostToolUseFailure");
+    expect(r.stdout).toContain("PreToolUse, PostToolUse, PostToolUseFailure, UserPromptSubmit");
     expect(r.stdout).toContain(".gitignore");
     expect(r.stdout).toContain(`created:   ${join(root, ".veto")}/`);
   });
@@ -143,6 +150,7 @@ describe("veto init: absolute paths (PATH robustness)", () => {
     const r = await runCli(["init"], { cwd: root });
     expect(r.code).toBe(0);
     expect(r.stdout).toContain("upgraded existing Veto entry in place: PreToolUse, PostToolUse, PostToolUseFailure");
+    expect(r.stdout).toContain('added to: UserPromptSubmit'); // Task #1 installs lacked it
     expect(r.stdout).toContain("backup:");
     const s = readJson(join(root, LOCAL));
     expect(s.model).toBe("m");

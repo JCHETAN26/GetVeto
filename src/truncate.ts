@@ -67,12 +67,23 @@ export interface TruncateResult {
   truncated: string[];
 }
 
-/** Returns a size-capped copy of the event. Fields other than tool_input/tool_response are untouched. */
+/**
+ * Returns a size-capped copy of the event. Only tool_input, tool_response and a
+ * UserPromptSubmit `prompt` are capped; every other field is untouched.
+ */
 export function truncateEvent(event: Record<string, unknown>): TruncateResult {
   const hits: string[] = [];
   const shell = typeof event.tool_name === "string" && SHELL_TOOLS.has(event.tool_name);
   const limitFor = (p: string) => (shell && p === "tool_input.command" ? COMMAND_MAX_BYTES : MAX_BYTES);
   let out = event;
+  // A pasted prompt can be huge; keep up to 16 KB of it (same allowance as a shell command).
+  if (typeof event.prompt === "string") {
+    const r = truncateString(event.prompt, COMMAND_MAX_BYTES);
+    if (r.truncated) {
+      out = { ...event, prompt: r.value };
+      hits.push("prompt");
+    }
+  }
   for (const key of ["tool_input", "tool_response"] as const) {
     if (!(key in event)) continue;
     const before = hits.length;

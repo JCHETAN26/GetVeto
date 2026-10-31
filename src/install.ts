@@ -157,7 +157,7 @@ export function init(root: string, opts: InitOptions, out: Out): number {
     writeFileSync(abs, serializeSettings(settings));
     out(`${existing === null ? "created:" : "modified:"}  ${abs}`);
     out(`           hook command: ${describe(desired)}  (timeout 10s)`);
-    if (added.length) out(`           added to (matcher "*"): ${added.join(", ")}`);
+    if (added.length) out(`           added to: ${added.join(", ")}`);
     if (upgraded.length) out(`           upgraded existing Veto entry in place: ${upgraded.join(", ")}`);
     if (existing === null) {
       const state = readState(root);

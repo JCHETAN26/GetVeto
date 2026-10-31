@@ -107,3 +107,14 @@ describe("truncateEvent on real captured fixtures", () => {
     expect(plain.truncated).toBeUndefined();
   });
 });
+
+describe("UserPromptSubmit prompt cap", () => {
+  it("keeps prompts up to 16 KB, caps longer ones", () => {
+    const small = { hook_event_name: "UserPromptSubmit", prompt: "p".repeat(10_000) };
+    expect(truncateEvent(small).truncated).toEqual([]);
+    const big = { hook_event_name: "UserPromptSubmit", prompt: "p".repeat(50_000) };
+    const r = truncateEvent(big);
+    expect(r.truncated).toEqual(["prompt"]);
+    expect((r.event.prompt as string).replace(TRUNCATION_MARKER_RE, "")).toHaveLength(COMMAND_MAX_BYTES);
+  });
+});

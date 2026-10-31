@@ -54,6 +54,7 @@ const EVENT_LABEL: Record<string, string> = {
   PreToolUse: "pre ",
   PostToolUse: "post",
   PostToolUseFailure: "FAIL",
+  UserPromptSubmit: "user",
 };
 
 function pad2(n: number): string {
@@ -73,6 +74,9 @@ export function formatEntry(entry: LogEntry): string {
   const ev = entry.event;
   const eventName = str(ev.hook_event_name) ?? "?";
   const label = EVENT_LABEL[eventName] ?? eventName;
+  if (eventName === "UserPromptSubmit") {
+    return `${formatTime(entry.ts)}  ${label}  ${"prompt".padEnd(10)}  ${oneLine(str(ev.prompt) ?? "")}`;
+  }
   const tool = str(ev.tool_name) ?? "-";
   let summary = summarizeInput(str(ev.tool_name), ev.tool_input);
   if (eventName === "PostToolUseFailure" && typeof ev.error === "string") {

@@ -50,3 +50,13 @@ describe("parseLog / formatEntry", () => {
     expect(line).toContain("[error: Exit code 1]");
   });
 });
+
+describe("UserPromptSubmit lines", () => {
+  it("shows the prompt text", () => {
+    const line = formatEntry({
+      ts: "2026-10-31T12:00:00.000Z",
+      event: { hook_event_name: "UserPromptSubmit", prompt: "fix the bug\nin ISSUE-42", prompt_id: "p1" },
+    });
+    expect(line).toMatch(/  user  prompt      fix the bug in ISSUE-42$/);
+  });
+});

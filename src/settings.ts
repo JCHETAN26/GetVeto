@@ -1,7 +1,16 @@
 // Pure merge logic for Claude Code settings files. No filesystem access here.
 // Format reference: docs/hooks-research.md §4.
 
-export const VETO_EVENTS = ["PreToolUse", "PostToolUse", "PostToolUseFailure"] as const;
+// UserPromptSubmit is logged so `veto label` can show which prompt led to a tool call
+// (tool events carry prompt_id but not the prompt text).
+export const VETO_EVENTS = ["PreToolUse", "PostToolUse", "PostToolUseFailure", "UserPromptSubmit"] as const;
+
+/** Events whose matcher filters on tool name. UserPromptSubmit has no matcher, so we omit it. */
+const TOOL_EVENTS: ReadonlySet<string> = new Set(["PreToolUse", "PostToolUse", "PostToolUseFailure"]);
+
+function newGroup(event: string, handler: CommandHandler): Record<string, unknown> {
+  return TOOL_EVENTS.has(event) ? { matcher: "*", hooks: [clone(handler)] } : { hooks: [clone(handler)] };
+}
 
 /** Seconds. Claude Code's default is 600; we cap a hung Veto at 10s. */
 export const VETO_HOOK_TIMEOUT_S = 10;
@@ -122,7 +131,7 @@ export function addVetoHooks(
     });
 
     if (found.length === 0) {
-      list.push({ matcher: "*", hooks: [clone(desired)] });
+      list.push(newGroup(event, desired));
       hooks[event] = list;
       added.push(event);
       continue;
