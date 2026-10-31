@@ -1,14 +1,20 @@
 // `veto init` and `veto uninstall`. Project-level only: never touches ~/.claude.
-import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   addVetoHooks,
   containsVeto,
   gitignoreAppend,
   gitignoreHas,
+  looksLikeVetoCliPath,
   parseSettings,
   removeVetoHooks,
   serializeSettings,
+  vetoHandler,
+  type CommandHandler,
+  type HookCommandSpec,
+  type VetoCliPredicate,
 } from "./settings.js";
 import { ensureVetoDir, writePrivate } from "./storage.js";
 
@@ -78,6 +84,43 @@ function findGitRoot(start: string): string | null {
   }
 }
 
+/** Absolute paths of the running node binary and of this Veto install's dist/cli.js. */
+export function currentHookSpec(): HookCommandSpec {
+  const cli = fileURLToPath(new URL("./cli.js", import.meta.url));
+  let real = cli;
+  try {
+    real = realpathSync(cli); // resolve `npm link` / global-install symlinks
+  } catch {
+    /* keep the unresolved path */
+  }
+  return { node: process.execPath, cli: real };
+}
+
+/**
+ * Is `p` some Veto install's dist/cli.js? True for this install, for any path shaped like
+ * .../getveto/dist/cli.js, and for any dist/cli.js whose package.json says name "getveto"
+ * (covers a repo clone in a differently named folder).
+ */
+export const isVetoCliPath: VetoCliPredicate = (p) => {
+  if (looksLikeVetoCliPath(p)) return true;
+  try {
+    if (resolve(p) === currentHookSpec().cli) return true;
+  } catch {
+    /* ignore */
+  }
+  if (!/[\\/]dist[\\/]cli\.js$/.test(p)) return false;
+  try {
+    const pkg = JSON.parse(readFileSync(join(dirname(dirname(p)), "package.json"), "utf8")) as { name?: unknown };
+    return pkg.name === "getveto";
+  } catch {
+    return false;
+  }
+};
+
+function describe(h: CommandHandler): string {
+  return [h.command, ...(h.args ?? [])].map((a) => (/\s/.test(a) ? JSON.stringify(a) : a)).join(" ");
+}
+
 export interface InitOptions {
   shared: boolean;
 }
@@ -98,8 +141,12 @@ export function init(root: string, opts: InitOptions, out: Out): number {
 
   // 1. Settings file
   const existing = readSettingsFile(root, rel);
-  const { settings, added } = addVetoHooks(existing ?? {});
-  if (added.length === 0) {
+  // Local settings: absolute node + CLI paths, so the hook works without the shell's PATH
+  // (desktop app, IDE). Shared settings are committed, so they keep the portable `veto` form:
+  // an absolute path would leak this machine's layout and break on teammates' machines.
+  const desired = opts.shared ? vetoHandler() : vetoHandler(currentHookSpec());
+  const { settings, added, upgraded } = addVetoHooks(existing ?? {}, desired, isVetoCliPath);
+  if (added.length === 0 && upgraded.length === 0) {
     out(`unchanged: ${abs} already contains the Veto hook.`);
   } else {
     if (existing !== null) {
@@ -109,7 +156,9 @@ export function init(root: string, opts: InitOptions, out: Out): number {
     if (!existsSync(dirname(abs))) mkdirSync(dirname(abs)); // .claude/ directly under root
     writeFileSync(abs, serializeSettings(settings));
     out(`${existing === null ? "created:" : "modified:"}  ${abs}`);
-    out(`           added hook \`veto hook\` (matcher "*", timeout 10s) to: ${added.join(", ")}`);
+    out(`           hook command: ${describe(desired)}  (timeout 10s)`);
+    if (added.length) out(`           added to (matcher "*"): ${added.join(", ")}`);
+    if (upgraded.length) out(`           upgraded existing Veto entry in place: ${upgraded.join(", ")}`);
     if (existing === null) {
       const state = readState(root);
       if (!state.createdSettingsFiles.includes(rel)) state.createdSettingsFiles.push(rel);
@@ -157,11 +206,11 @@ export function uninstall(root: string, out: Out): number {
   for (const rel of [LOCAL_SETTINGS, SHARED_SETTINGS]) {
     const abs = join(root, rel);
     const existing = readSettingsFile(root, rel);
-    if (existing === null || !containsVeto(existing)) continue;
+    if (existing === null || !containsVeto(existing, isVetoCliPath)) continue;
     any = true;
     const b = backup(root, rel);
     out(`backup:    ${abs} -> ${b}`);
-    const { settings, removed } = removeVetoHooks(existing);
+    const { settings, removed } = removeVetoHooks(existing, isVetoCliPath);
     const summary = Object.entries(removed)
       .map(([ev, n]) => `${ev}${n > 1 ? ` x${n}` : ""}`)
       .join(", ");

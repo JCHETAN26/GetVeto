@@ -125,3 +125,58 @@ describe("gitignore helpers", () => {
     expect(gitignoreAppend("", [".veto/"])).toBe(".veto/\n");
   });
 });
+
+describe("absolute handler + in-place upgrade", () => {
+  const spec = { node: "/usr/bin/node", cli: "/opt/getveto/dist/cli.js" };
+  const abs = vetoHandler(spec);
+
+  it("absolute handler shape", () => {
+    expect(abs).toEqual({ type: "command", command: "/usr/bin/node", args: ["/opt/getveto/dist/cli.js", "hook"], timeout: 10 });
+    expect(isVetoHandler(abs)).toBe(true);
+  });
+
+  it("does not claim someone else's `node something/cli.js hook`", () => {
+    expect(isVetoHandler({ type: "command", command: "node", args: ["/x/other-tool/dist/cli.js", "hook"] })).toBe(false);
+    expect(isVetoHandler({ type: "command", command: "node", args: ["/x/getveto/dist/cli.js", "log"] })).toBe(false);
+    // ...unless the caller's predicate says that path is a Veto CLI
+    expect(isVetoHandler({ type: "command", command: "node", args: ["/x/clone/dist/cli.js", "hook"] }, () => true)).toBe(true);
+  });
+
+  it("upgrades the old relative entry in place and is idempotent afterwards", () => {
+    const old = addVetoHooks({}).settings; // Task #1 portable form
+    const up = addVetoHooks(old, abs);
+    expect(up.added).toEqual([]);
+    expect(up.upgraded).toEqual([...VETO_EVENTS]);
+    for (const ev of VETO_EVENTS) expect((up.settings.hooks as any)[ev]).toEqual([{ matcher: "*", hooks: [abs] }]);
+    const again = addVetoHooks(up.settings, abs);
+    expect(again.added).toEqual([]);
+    expect(again.upgraded).toEqual([]);
+    expect(again.settings).toEqual(up.settings);
+  });
+
+  it("collapses duplicate Veto entries but leaves other handlers and user-empty groups alone", () => {
+    const userEmpty = { matcher: "Read", hooks: [] };
+    const input = {
+      hooks: {
+        PreToolUse: [
+          userEmpty,
+          { matcher: "*", hooks: [vetoHandler(), { type: "command", command: "echo keep" }] },
+          { matcher: "*", hooks: [vetoHandler()] },
+        ],
+      },
+    };
+    const { settings, upgraded } = addVetoHooks(input, abs);
+    expect(upgraded).toContain("PreToolUse");
+    expect((settings.hooks as any).PreToolUse).toEqual([
+      userEmpty,
+      { matcher: "*", hooks: [abs, { type: "command", command: "echo keep" }] },
+    ]);
+  });
+
+  it("switching back to portable (--shared) also upgrades in place", () => {
+    const withAbs = addVetoHooks({}, abs).settings;
+    const r = addVetoHooks(withAbs, vetoHandler());
+    expect(r.upgraded).toEqual([...VETO_EVENTS]);
+    expect(removeVetoHooks(r.settings).settings).toEqual({});
+  });
+});

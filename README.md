@@ -36,8 +36,8 @@ veto log           # see what it did
 
 | Command | What it does |
 |---|---|
-| `veto init` | Adds Veto's hook to **`.claude/settings.local.json`** in the current folder. That file is your personal, project-only settings file and is kept out of git. Veto also adds `.veto/` and `.claude/settings.local.json` to `.gitignore`. |
-| `veto init --shared` | Adds the hook to **`.claude/settings.json`** instead. That's the file teams commit, so everyone working in the repo gets Veto. Teammates who don't have `veto` installed will see a non-blocking "hook error" notice on each tool call. |
+| `veto init` | Adds Veto's hook (with absolute paths, see below) to **`.claude/settings.local.json`** in the current folder. That file is your personal, project-only settings file and is kept out of git. Veto also adds `.veto/` and `.claude/settings.local.json` to `.gitignore`. |
+| `veto init --shared` | Adds the hook (as plain `veto hook`, see below) to **`.claude/settings.json`** instead. That's the file teams commit, so everyone working in the repo gets Veto. Teammates who don't have `veto` installed will see a non-blocking "hook error" notice on each tool call. |
 | `veto log [-n N]` | Prints the last N tool calls (default 20) as a timeline: time, event (`pre` / `post` / `FAIL`), tool, and a one-line summary such as the command or file path. |
 | `veto uninstall` | Removes Veto's hook from whichever of `.claude/settings.local.json` and `.claude/settings.json` contain it, leaving all your other settings and hooks untouched. Your `.veto/` logs are kept. |
 | `veto hook` | What Claude Code runs. You don't call it yourself. |
@@ -52,6 +52,19 @@ How `init` and `uninstall` behave:
 
 Veto registers itself on Claude Code's `PreToolUse`, `PostToolUse` and `PostToolUseFailure` events, with matcher `*`
 and a 10-second timeout. See [docs/hooks-research.md](docs/hooks-research.md) for how Claude Code hooks work.
+
+### How the hook command is written
+
+| | Hook command written | Why |
+|---|---|---|
+| `veto init` (local) | Absolute paths: `<node binary> <veto install>/dist/cli.js hook`, e.g. `/home/you/.nvm/versions/node/v22.14.0/bin/node /home/you/.../getveto/dist/cli.js hook` | Works even when Claude Code is launched from the desktop app or an IDE that doesn't load your shell's `PATH` (for example nvm). |
+| `veto init --shared` | `veto hook`, looked up on `PATH` | The file is committed. Absolute paths would expose your machine's folder layout and wouldn't exist on teammates' machines. Each teammate needs `veto` on their `PATH`. |
+
+Re-running `veto init` upgrades an older Veto entry **in place**: a relative `veto hook`, or an absolute path from a
+Node version or install location you no longer use. Its position and every other hook are kept, and running it again
+after that changes nothing. **Re-run `veto init` after switching Node versions (e.g. `nvm use`) or moving or
+reinstalling Veto**, because the absolute paths point at the old location. Until then, Claude Code shows a
+non-blocking "hook error" and nothing is logged.
 
 ## Privacy
 

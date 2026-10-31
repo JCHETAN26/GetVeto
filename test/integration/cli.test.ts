@@ -2,12 +2,17 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { loadFixtures, runCli, tempProject } from "../helpers.js";
+import { spawnSync } from "node:child_process";
+import { CLI, loadFixtures, runCli, tempProject } from "../helpers.js";
 
 const LOCAL = join(".claude", "settings.local.json");
 const SHARED = join(".claude", "settings.json");
 const readJson = (p: string) => JSON.parse(readFileSync(p, "utf8"));
-const vetoGroup = { matcher: "*", hooks: [{ type: "command", command: "veto", args: ["hook"], timeout: 10 }] };
+// Local settings get absolute paths (node binary + this repo's built CLI); --shared stays portable.
+const localHandler = { type: "command", command: process.execPath, args: [CLI, "hook"], timeout: 10 };
+const vetoGroup = { matcher: "*", hooks: [localHandler] };
+const portableHandler = { type: "command", command: "veto", args: ["hook"], timeout: 10 };
+const sharedGroup = { matcher: "*", hooks: [portableHandler] };
 
 describe("veto init", () => {
   it("fresh project: creates settings.local.json, .veto/, .gitignore; prints what changed", async () => {
@@ -64,7 +69,7 @@ describe("veto init", () => {
     const root = tempProject();
     const r = await runCli(["init", "--shared"], { cwd: root });
     expect(r.code).toBe(0);
-    expect(readJson(join(root, SHARED)).hooks.PreToolUse).toEqual([vetoGroup]);
+    expect(readJson(join(root, SHARED)).hooks.PreToolUse).toEqual([sharedGroup]);
     expect(existsSync(join(root, LOCAL))).toBe(false);
     expect(readFileSync(join(root, ".gitignore"), "utf8")).toBe(".veto/\n");
   });
@@ -82,6 +87,95 @@ describe("veto init", () => {
   it("rejects unknown options", async () => {
     const r = await runCli(["init", "--global"], { cwd: tempProject() });
     expect(r.code).toBe(1);
+  });
+});
+
+describe("veto init: absolute paths (PATH robustness)", () => {
+  it("writes the absolute node binary and absolute CLI path", async () => {
+    const root = tempProject();
+    const r = await runCli(["init"], { cwd: root });
+    expect(r.code).toBe(0);
+    const h = readJson(join(root, LOCAL)).hooks.PreToolUse[0].hooks[0];
+    expect(h.command).toBe(process.execPath);
+    expect(h.args).toEqual([CLI, "hook"]);
+    expect(h.command.startsWith("/") || /^[A-Za-z]:\\/.test(h.command)).toBe(true);
+    expect(r.stdout).toContain(`hook command: ${process.execPath}`);
+  });
+
+  it("the installed command works with an EMPTY PATH (like a desktop/IDE launch without nvm)", async () => {
+    const root = tempProject();
+    await runCli(["init"], { cwd: root });
+    const h = readJson(join(root, LOCAL)).hooks.PreToolUse[0].hooks[0];
+    const payload = loadFixtures()[0]!.raw;
+    // Spawn exactly what Claude Code would (exec form: command + args, no shell), with no PATH.
+    const res = spawnSync(h.command, h.args, {
+      input: payload,
+      env: { CLAUDE_PROJECT_DIR: root, PATH: "" },
+      encoding: "utf8",
+      timeout: 10_000,
+    });
+    expect(res.error).toBeUndefined();
+    expect(res.status).toBe(0);
+    expect(res.stdout).toBe("");
+    expect(readFileSync(join(root, ".veto", "log.jsonl"), "utf8").trim().split("\n")).toHaveLength(1);
+    // Contrast: the old relative form can't even start without PATH.
+    const old = spawnSync("veto", ["hook"], { input: payload, env: { PATH: "" } });
+    expect((old.error as NodeJS.ErrnoException | undefined)?.code).toBe("ENOENT");
+  });
+
+  it("upgrades an old relative-path entry IN PLACE, keeping neighbors and order; then idempotent", async () => {
+    const root = tempProject();
+    mkdirSync(join(root, ".claude"));
+    const guard = { type: "command", command: "./guard.sh" };
+    const old = {
+      model: "m",
+      hooks: {
+        PreToolUse: [
+          { matcher: "Bash", hooks: [guard] },
+          { matcher: "*", hooks: [portableHandler] },
+          { matcher: "Edit", hooks: [{ type: "command", command: "./lint.sh" }] },
+        ],
+        PostToolUse: [{ matcher: "*", hooks: [portableHandler] }],
+        PostToolUseFailure: [{ matcher: "*", hooks: [portableHandler] }],
+      },
+    };
+    writeFileSync(join(root, LOCAL), JSON.stringify(old, null, 2));
+    const r = await runCli(["init"], { cwd: root });
+    expect(r.code).toBe(0);
+    expect(r.stdout).toContain("upgraded existing Veto entry in place: PreToolUse, PostToolUse, PostToolUseFailure");
+    expect(r.stdout).toContain("backup:");
+    const s = readJson(join(root, LOCAL));
+    expect(s.model).toBe("m");
+    expect(s.hooks.PreToolUse).toEqual([
+      { matcher: "Bash", hooks: [guard] },
+      { matcher: "*", hooks: [localHandler] }, // same position as before
+      { matcher: "Edit", hooks: [{ type: "command", command: "./lint.sh" }] },
+    ]);
+    expect(s.hooks.PostToolUse).toEqual([vetoGroup]);
+
+    const before = readFileSync(join(root, LOCAL), "utf8");
+    const again = await runCli(["init"], { cwd: root });
+    expect(again.stdout).toContain("Nothing changed");
+    expect(readFileSync(join(root, LOCAL), "utf8")).toBe(before);
+  });
+
+  it("upgrades an absolute entry pointing at an OLD install location (e.g. repo moved)", async () => {
+    const root = tempProject();
+    mkdirSync(join(root, ".claude"));
+    const moved = { type: "command", command: "/old/node", args: ["/media/x/project/GetVeto/dist/cli.js", "hook"], timeout: 10 };
+    writeFileSync(join(root, LOCAL), JSON.stringify({ hooks: { PreToolUse: [{ matcher: "*", hooks: [moved] }] } }));
+    await runCli(["init"], { cwd: root });
+    const s = readJson(join(root, LOCAL));
+    expect(s.hooks.PreToolUse).toEqual([vetoGroup]);
+  });
+
+  it("uninstall removes the absolute form too", async () => {
+    const root = tempProject();
+    mkdirSync(join(root, ".claude"));
+    writeFileSync(join(root, LOCAL), JSON.stringify({ env: { A: "1" } }));
+    await runCli(["init"], { cwd: root });
+    await runCli(["uninstall"], { cwd: root });
+    expect(readJson(join(root, LOCAL))).toEqual({ env: { A: "1" } });
   });
 });
 
