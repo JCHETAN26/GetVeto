@@ -27,7 +27,10 @@ export interface SimpleCommand {
   assignments: string[];
   /** True when the command is one stage of a multi-command pipeline (a | b). */
   inPipeline: boolean;
-  /** Wrappers it was reached through, outermost first: sudo, env, xargs, time, nohup. */
+  /**
+   * Wrappers it was reached through, outermost first: sudo, env, xargs, time, nohup, timeout,
+   * nice, command, exec, stdbuf, ionice.
+   */
   wrappers: string[];
   /** True when it sits inside $(...), `...` or <(...). */
   inSubstitution: boolean;
@@ -44,13 +47,29 @@ interface Ctx {
   extraRedirects: Redirect[];
 }
 
-/** Options that take a separate value, per wrapper. */
-const WRAPPER_VALUE_OPTS: Record<string, Set<string>> = {
-  sudo: new Set(["-u", "-g", "-h", "-p", "-C", "-D", "-r", "-t", "-U", "-T"]),
-  env: new Set(["-u", "-C", "-S"]),
-  xargs: new Set(["-I", "-L", "-n", "-P", "-d", "-E", "-s", "-a"]),
-  time: new Set(["-f", "-o"]),
-  nohup: new Set(),
+/**
+ * Programs that run another program. `value` = options that take a separate value,
+ * `positional` = leading non-option args before the wrapped command (timeout's DURATION),
+ * `notWrapper` = options that mean "don't run anything" (command -v npm is a lookup).
+ */
+interface WrapperSpec {
+  value: Set<string>;
+  positional?: number;
+  notWrapper?: Set<string>;
+}
+const W = (value: string[], extra: Omit<WrapperSpec, "value"> = {}): WrapperSpec => ({ value: new Set(value), ...extra });
+const WRAPPERS: Record<string, WrapperSpec> = {
+  sudo: W(["-u", "-g", "-h", "-p", "-C", "-D", "-r", "-t", "-U", "-T", "--user", "--group", "--host", "--prompt", "--chdir"]),
+  env: W(["-u", "-C", "-S", "--unset", "--chdir", "--split-string"]),
+  xargs: W(["-I", "-L", "-n", "-P", "-d", "-E", "-s", "-a", "--max-args", "--max-procs", "--delimiter", "--arg-file"]),
+  time: W(["-f", "-o", "--format", "--output"]),
+  nohup: W([]),
+  timeout: W(["-s", "-k", "--signal", "--kill-after"], { positional: 1 }),
+  nice: W(["-n", "--adjustment"]),
+  command: W([], { notWrapper: new Set(["-v", "-V"]) }),
+  exec: W(["-a"]),
+  stdbuf: W(["-i", "-o", "-e", "--input", "--output", "--error"]),
+  ionice: W(["-c", "-n", "-p", "-P", "-u", "--class", "--classdata", "--pid", "--pgid", "--uid"]),
 };
 
 const isAssignment = (s: string) => /^[A-Za-z_][A-Za-z0-9_]*=/.test(s);
@@ -131,26 +150,35 @@ function simple(node: Command, ctx: Ctx, src: string): SimpleCommand {
 
   const wrappers: string[] = ctx.timed ? ["time"] : [];
   let i = 0;
-  while (i < words.length) {
+  wrap: while (i < words.length) {
     const name = base(words[i]!);
-    const valueOpts = WRAPPER_VALUE_OPTS[name];
-    if (!valueOpts) break;
-    wrappers.push(name);
-    i++;
-    while (i < words.length) {
-      const w = words[i]!;
+    const spec = WRAPPERS[name];
+    if (!spec) break;
+    // `command -v npm` / `command -V npm` look a program up; nothing runs.
+    for (let k = i + 1; spec.notWrapper && k < words.length && words[k]!.startsWith("-") && words[k] !== "--"; k++) {
+      if (spec.notWrapper.has(words[k]!)) break wrap;
+    }
+    let j = i + 1;
+    while (j < words.length) {
+      const w = words[j]!;
       if (w === "--") {
-        i++;
+        j++;
         break;
       }
       if (name === "env" && isAssignment(w)) {
         assignments.push(w.slice(0, w.indexOf("=")));
-        i++;
+        j++;
         continue;
       }
       if (!w.startsWith("-") || w === "-") break;
-      i += valueOpts.has(w) ? 2 : 1;
+      j += spec.value.has(w) ? 2 : 1;
     }
+    j += spec.positional ?? 0;
+    // Nothing left to wrap: `nice` / `timeout` alone are the program. `exec > log` (redirect
+    // only) is the one wrapper that legitimately wraps nothing.
+    if (j >= words.length && name !== "exec") break wrap;
+    wrappers.push(name);
+    i = j;
   }
   const rest = words.slice(i);
   const program = rest.length > 0 ? rest[0]! : null;

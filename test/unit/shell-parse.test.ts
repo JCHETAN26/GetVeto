@@ -172,3 +172,37 @@ describe("built module: lazy import has no side effects", () => {
     expect(r.status).toBe(0);
   });
 });
+
+describe("more wrappers: timeout, nice, command, exec, stdbuf, ionice", () => {
+  it("strips each wrapper and its options / positional args", () => {
+    expect(cmds("timeout 30 npm test")[0]).toMatchObject({ program: "npm", args: ["test"], wrappers: ["timeout"] });
+    expect(cmds("timeout -s KILL --kill-after 5 2m npm run e2e")[0]).toMatchObject({ program: "npm", args: ["run", "e2e"], wrappers: ["timeout"] });
+    expect(cmds("nice -n 10 npm run build")[0]).toMatchObject({ program: "npm", wrappers: ["nice"] });
+    expect(cmds("nice make -j8")[0]).toMatchObject({ program: "make", args: ["-j8"], wrappers: ["nice"] });
+    expect(cmds("command git status")[0]).toMatchObject({ program: "git", args: ["status"], wrappers: ["command"] });
+    expect(cmds("exec node server.js")[0]).toMatchObject({ program: "node", wrappers: ["exec"] });
+    expect(cmds("stdbuf -oL npm test | tee t.log")[0]).toMatchObject({ program: "npm", wrappers: ["stdbuf"], inPipeline: true });
+    expect(cmds("stdbuf -o L npm test")[0]).toMatchObject({ program: "npm", wrappers: ["stdbuf"] });
+    expect(cmds("ionice -c 3 npm run build")[0]).toMatchObject({ program: "npm", wrappers: ["ionice"] });
+  });
+
+  it("stacks wrappers in order", () => {
+    expect(cmds("sudo nice -n 5 timeout 60 env CI=1 npm test")[0]).toMatchObject({
+      program: "npm",
+      wrappers: ["sudo", "nice", "timeout", "env"],
+      assignments: ["CI"],
+    });
+  });
+
+  it("`command -v` / `-V` is a lookup, not a wrapper", () => {
+    expect(cmds("command -v npm")[0]).toMatchObject({ program: "command", args: ["-v", "npm"], wrappers: [] });
+    expect(cmds("command -V git")[0]).toMatchObject({ program: "command", wrappers: [] });
+  });
+
+  it("a wrapper with nothing to wrap stays the program", () => {
+    expect(cmds("timeout")[0]).toMatchObject({ program: "timeout", wrappers: [] });
+    expect(cmds("nice")[0]).toMatchObject({ program: "nice", wrappers: [] });
+    expect(cmds("sudo")[0]).toMatchObject({ program: "sudo", wrappers: [] });
+    expect(cmds("exec > build.log")[0]).toMatchObject({ program: null, wrappers: ["exec"], redirects: [{ op: ">", target: "build.log" }] });
+  });
+});
