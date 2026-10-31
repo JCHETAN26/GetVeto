@@ -1,0 +1,32 @@
+{
+  "name": "getveto",
+  "version": "0.1.0",
+  "description": "Veto: a local safety layer for AI coding agents. Your agent proposes. You veto.",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "veto": "dist/cli.js"
+  },
+  "files": [
+    "dist/"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/JCHETAN26/GetVeto.git"
+  },
+  "keywords": ["claude-code", "hooks", "ai-agents", "safety", "security"],
+  "scripts": {
+    "build": "node ./node_modules/typescript/bin/tsc -p tsconfig.json && node scripts/postbuild.mjs",
+    "test": "npm run build && node ./node_modules/vitest/vitest.mjs run",
+    "typecheck": "node ./node_modules/typescript/bin/tsc -p tsconfig.json --noEmit",
+    "capture-fixtures": "node scripts/capture-fixtures.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "typescript": "~5.9.3",
+    "vitest": "~3.2.7"
+  }
+}
