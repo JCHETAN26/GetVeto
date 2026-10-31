@@ -37,6 +37,12 @@ PreToolUse fixtures): Bash p50 ≈ 28–30 ms, p95 ≈ 31–33 ms. Non-Bash p50 
 Adding unbash's ~11 ms on Bash events only should leave p95 under 50 ms. That still has to be
 measured once the analyzer exists.
 
+**Update, same day (Task #3a):** with the same files on the same disk, re-running the identical scratch
+script later gave 15–18 ms for the unbash import (it was ~11 ms earlier). In-repo, `npm run bench`
+(`scripts/bench-parse.mjs`) measured 16–21 ms for the import, 2–4.5 ms for the first parse, and 1–40 µs
+per warm parse. So plan on **roughly 10–20 ms of import cost on Bash events, depending on machine
+load**. Lazy loading keeps it off every other event.
+
 ### Decision
 Use `unbash`, pinned to the exact version `6.0.2` (no `^` or `~`):
 - it was the only candidate that was correct, synchronous, pure JS, and cheap enough
