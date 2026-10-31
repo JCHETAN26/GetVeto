@@ -11,6 +11,9 @@ Usage:
                          Default: .claude/settings.local.json (personal, gitignored).
                          --shared: .claude/settings.json (committed, applies to your team).
   veto log [-n N]        Show the last N logged tool calls (default 20).
+  veto label [--from <project-dir>] [--to <veto-repo-dir>]
+                         Label logged PreToolUse calls (allow/flag + category) into
+                         <veto-repo>/test/fixtures/redteam/. Resumable; never double-labels.
   veto uninstall         Remove Veto's hook from .claude/settings.local.json and/or .claude/settings.json.
   veto hook              (Called by Claude Code.) Read a hook event on stdin and log it.
   veto --version
@@ -33,6 +36,10 @@ async function main(): Promise<number> {
       if (argv.length > 1) return usageError(`uninstall takes no options`);
       const { uninstall } = await import("./install.js");
       return uninstall(process.cwd(), console.log);
+    }
+    case "label": {
+      const { runLabel } = await import("./label-cli.js");
+      return runLabel(argv.slice(1));
     }
     case "log": {
       let n = 20;
