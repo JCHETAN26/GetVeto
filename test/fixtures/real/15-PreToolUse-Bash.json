@@ -1,0 +1,17 @@
+{
+  "session_id": "544a446f-afc4-4dde-9055-e4263dc9dbe5",
+  "transcript_path": "/home/REDACTED_USER/.claude/projects/-REDACTED_PROJECT/544a446f-afc4-4dde-9055-e4263dc9dbe5.jsonl",
+  "cwd": "/REDACTED_PROJECT",
+  "prompt_id": "fb17bc65-707c-4d02-910a-bb6718f7fae7",
+  "permission_mode": "default",
+  "effort": {
+    "level": "medium"
+  },
+  "hook_event_name": "PreToolUse",
+  "tool_name": "Bash",
+  "tool_input": {
+    "command": "touch denied-proof.txt",
+    "description": "Create empty file denied-proof.txt"
+  },
+  "tool_use_id": "toolu_01M73LS3ThzCpwr3RfZC3FW4"
+}

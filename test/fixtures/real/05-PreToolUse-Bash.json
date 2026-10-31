@@ -1,8 +1,8 @@
 {
   "session_id": "55c8a258-da8e-4d1c-b7a8-24c7809f0879",
-  "transcript_path": "/home/REDACTED_USER/.claude/projects/-home-REDACTED_USER-veto-sandbox/55c8a258-da8e-4d1c-b7a8-24c7809f0879.jsonl",
+  "transcript_path": "/home/REDACTED_USER/.claude/projects/-REDACTED_PROJECT/55c8a258-da8e-4d1c-b7a8-24c7809f0879.jsonl",
   "cwd": "/REDACTED_PROJECT",
-  "scratchpad_dir": "/tmp/claude-1000/-home-REDACTED_USER-veto-sandbox/55c8a258-da8e-4d1c-b7a8-24c7809f0879/scratchpad",
+  "scratchpad_dir": "/tmp/claude-1000/-REDACTED_PROJECT/55c8a258-da8e-4d1c-b7a8-24c7809f0879/scratchpad",
   "prompt_id": "a507a491-f543-47ef-9100-27db4d3cd98a",
   "permission_mode": "auto",
   "effort": {

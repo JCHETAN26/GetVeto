@@ -1,0 +1,9 @@
+{
+  "session_id": "014c4ea7-62da-4c5e-9e6f-012167f073a1",
+  "transcript_path": "/home/REDACTED_USER/.claude/projects/-REDACTED_PROJECT/014c4ea7-62da-4c5e-9e6f-012167f073a1.jsonl",
+  "cwd": "/REDACTED_PROJECT",
+  "prompt_id": "83b5d4cf-6340-4e98-bd1e-685d053e6b08",
+  "permission_mode": "default",
+  "hook_event_name": "UserPromptSubmit",
+  "prompt": "Reply with just the word ok. Do not use any tools."
+}
