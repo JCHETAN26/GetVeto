@@ -1,0 +1,53 @@
+{
+  "session_id": "55c8a258-da8e-4d1c-b7a8-24c7809f0879",
+  "transcript_path": "/home/REDACTED_USER/.claude/projects/-home-REDACTED_USER-veto-sandbox/55c8a258-da8e-4d1c-b7a8-24c7809f0879.jsonl",
+  "cwd": "/REDACTED_PROJECT",
+  "scratchpad_dir": "/tmp/claude-1000/-home-REDACTED_USER-veto-sandbox/55c8a258-da8e-4d1c-b7a8-24c7809f0879/scratchpad",
+  "prompt_id": "50543c44-3052-4dc4-b56b-3eb3bd50ca0d",
+  "permission_mode": "auto",
+  "effort": {
+    "level": "medium"
+  },
+  "hook_event_name": "PostToolUse",
+  "tool_name": "Bash",
+  "tool_input": {
+    "command": "sed -i 's|return \"Hello, \" + name;|return `Hello, ${name}`;|' greet.js && cat greet.js && node greet.js",
+    "description": "Swap concatenation for template literal and run"
+  },
+  "tool_response": {
+    "stdout": "function greet(name) {\n  return `Hello, ${name}`;\n}\n\nconsole.log(greet(\"world\"));\nHello, world",
+    "stderr": "",
+    "interrupted": false,
+    "isImage": false,
+    "noOutputExpected": false,
+    "bashEditDiff": {
+      "files": [
+        {
+          "filePath": "/REDACTED_PROJECT/greet.js",
+          "hunks": [
+            {
+              "oldStart": 1,
+              "oldLines": 5,
+              "newStart": 1,
+              "newLines": 5,
+              "lines": [
+                " function greet(name) {",
+                "-  return \"Hello, \" + name;",
+                "+  return `Hello, ${name}`;",
+                " }",
+                " ",
+                " console.log(greet(\"world\"));"
+              ]
+            }
+          ]
+        }
+      ],
+      "moreFiles": 0,
+      "changedFiles": [
+        "/REDACTED_PROJECT/greet.js"
+      ]
+    }
+  },
+  "tool_use_id": "toolu_01Vw6hWkwLUik3SmTYS1Ae81",
+  "duration_ms": 103
+}
