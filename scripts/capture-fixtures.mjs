@@ -5,6 +5,7 @@
 // Usage: npm run capture-fixtures -- --from <project-dir> [-n N]
 //   --from  project whose .veto/log.jsonl to read (default: current directory)
 //   -n      number of most recent entries to capture (default: 20)
+//   --append  keep existing fixtures and number new ones after them (default: replace them all)
 //
 // Requires `npm run build` first (it uses dist/redact.js).
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -13,14 +14,16 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const { redactValue, redactString } = await import(join(repoRoot, "dist", "redact.js"));
+const { redactEvent } = await import(join(repoRoot, "dist", "redact.js"));
 
 let from = process.cwd();
 let n = 20;
+let append = false;
 const args = process.argv.slice(2);
 for (let i = 0; i < args.length; i++) {
   if (args[i] === "--from") from = resolve(args[++i] ?? "");
   else if (args[i] === "-n") n = Number(args[++i]);
+  else if (args[i] === "--append") append = true;
   else {
     console.error(`unknown argument: ${args[i]}`);
     process.exit(1);
@@ -55,33 +58,27 @@ if (picked.length === 0) {
 
 const outDir = join(repoRoot, "test", "fixtures", "real");
 mkdirSync(outDir, { recursive: true });
-for (const f of readdirSync(outDir)) if (f.endsWith(".json")) rmSync(join(outDir, f));
+const existing = readdirSync(outDir).filter((f) => f.endsWith(".json")).sort();
+let start = 0;
+if (append) {
+  // Continue numbering after the existing fixtures; never delete anything.
+  start = existing.reduce((m, f) => Math.max(m, Number.parseInt(f, 10) || 0), 0);
+} else {
+  for (const f of existing) rmSync(join(outDir, f));
+}
 
 let username;
 try {
   username = userInfo().username;
 } catch {}
-const opts = { homeDir: homedir(), username };
-// The project path itself can identify the user's machine layout; replace it too.
-const projectPlaceholder = "/REDACTED_PROJECT";
+const opts = { homeDir: homedir(), username, projectDir: from };
 
 const safe = (s) => String(s ?? "unknown").replace(/[^A-Za-z0-9_-]/g, "_");
 picked.forEach((event, idx) => {
-  let text = JSON.stringify(redactValue(event, opts), null, 2);
-  const redactedFrom = JSON.stringify(redactValue(from, opts)).slice(1, -1);
-  text = text.split(JSON.stringify(from).slice(1, -1)).join(projectPlaceholder);
-  text = text.split(redactedFrom).join(projectPlaceholder);
-  // Second pass over the serialized JSON catches secrets split across a key and its value
-  // (e.g. {"password": "..."}) that per-string redaction can't see. Keep it only if valid JSON.
-  const second = redactString(text, opts);
-  try {
-    JSON.parse(second);
-    text = second;
-  } catch {
-    console.warn(`warning: second-pass redaction broke JSON for entry ${idx + 1}; kept first pass only`);
-  }
-  const name = `${String(idx + 1).padStart(2, "0")}-${safe(event.hook_event_name)}-${safe(event.tool_name)}.json`;
-  writeFileSync(join(outDir, name), text + "\n");
+  const { value, secondPassApplied } = redactEvent(event, opts);
+  if (!secondPassApplied) console.warn(`warning: second-pass redaction broke JSON for entry ${idx + 1}; kept first pass only`);
+  const name = `${String(start + idx + 1).padStart(2, "0")}-${safe(event.hook_event_name)}-${safe(event.tool_name)}.json`;
+  writeFileSync(join(outDir, name), JSON.stringify(value, null, 2) + "\n");
   console.log(`wrote test/fixtures/real/${name}`);
 });
 console.log(`\nCaptured ${picked.length} event(s) from ${logPath}.`);

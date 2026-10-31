@@ -57,3 +57,36 @@ export function redactValue(v: unknown, opts: RedactOptions): unknown {
   }
   return v;
 }
+
+export const PROJECT_PLACEHOLDER = "/REDACTED_PROJECT";
+
+export interface RedactEventOptions extends RedactOptions {
+  /** Absolute project path; replaced by PROJECT_PLACEHOLDER (it reveals the machine's layout). */
+  projectDir?: string;
+}
+
+/**
+ * Full redaction used for anything that leaves .veto/ (fixtures, labeled examples):
+ * per-string redaction, project path -> placeholder, then a second pass over the serialized
+ * JSON that catches secrets split across a key and its value (e.g. {"password": "..."}).
+ * The second pass is kept only if the result is still valid JSON.
+ */
+export function redactEvent(value: unknown, opts: RedactEventOptions): { value: unknown; secondPassApplied: boolean } {
+  let text = JSON.stringify(redactValue(value, opts));
+  if (opts.projectDir) {
+    const raw = JSON.stringify(opts.projectDir).slice(1, -1);
+    const redacted = JSON.stringify(redactString(opts.projectDir, opts)).slice(1, -1);
+    text = text.split(raw).join(PROJECT_PLACEHOLDER).split(redacted).join(PROJECT_PLACEHOLDER);
+    // Claude Code also encodes the project path into folder names (transcript_path,
+    // scratchpad_dir) by turning every non-alphanumeric character into "-".
+    const dashed = opts.projectDir.replace(/[^A-Za-z0-9]/g, "-");
+    const dashedRedacted = redactString(dashed, opts);
+    for (const d of [dashed, dashedRedacted]) if (d.length > 1) text = text.split(d).join("-REDACTED_PROJECT");
+  }
+  const second = redactString(text, opts);
+  try {
+    return { value: JSON.parse(second), secondPassApplied: true };
+  } catch {
+    return { value: JSON.parse(text), secondPassApplied: false };
+  }
+}
