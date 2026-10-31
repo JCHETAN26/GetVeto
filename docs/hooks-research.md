@@ -235,6 +235,22 @@ accepted the trust dialog for the folder. In `-p` or SDK sessions, the folder co
 - Debugging: `claude --debug-file <path>`, or `claude --debug` with the log at `~/.claude/debug/<session-id>.txt`.
   `/hooks` shows the configured hooks read-only.
 
+## 5b. First real-session check (2026-10-31, Claude Code 2.1.316, Linux)
+
+One `claude -p "Read notes.md ... Then run ls." --allowedTools Read "Bash(ls)"` run in a sandbox with `veto init`.
+Observed 4 hook calls: PreToolUse Read, PreToolUse Bash (same second, so the hooks ran in parallel), then PostToolUse
+for each. No errors. Field names seen:
+
+- Common: `session_id`, `transcript_path`, `cwd`, `prompt_id`, `permission_mode`, `effort.level`, `hook_event_name`,
+  `tool_name`, `tool_input`, `tool_use_id`. **`scratchpad_dir` was absent** (the docs allow that).
+- Read `tool_input`: `file_path`, `limit`. Bash `tool_input`: `command`, `description`.
+- PostToolUse adds `duration_ms` and `tool_response`. Read's response is `{type, file: {filePath, content, numLines,
+  startLine, totalLines}}`, so **the full file content is in the log**. Bash's is `{stdout, stderr, interrupted, isImage,
+  noOutputExpected}`.
+
+This was a non-interactive (`-p`) run. The interactive demo (with the trust dialog) is still to be run by the founder,
+and its captures replace the docs fixtures.
+
 ## 6. Other UNCLEAR / open items
 
 1. **UNCLEAR:** whether `tool_use_id` appears on `PostToolUseFailure` (it's not in that event's table).
