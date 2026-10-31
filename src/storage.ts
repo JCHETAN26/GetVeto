@@ -11,13 +11,25 @@ export function vetoDir(projectRoot: string): string {
   return join(projectRoot, VETO_DIR);
 }
 
-/** Create <root>/.veto with mode 0700 (no-op if it exists). */
+/**
+ * Create <root>/.veto with mode 0700 (no-op if it exists).
+ *
+ * Deliberately NOT `mkdirSync(..., { recursive: true })`: on Node 22.14 that call never returns
+ * for some paths (e.g. under /proc), which would hang the user's agent. The project root must
+ * already exist; we only ever create one level.
+ */
 export function ensureVetoDir(projectRoot: string): string {
   const dir = vetoDir(projectRoot);
-  mkdirSync(dir, { recursive: true, mode: 0o700 });
-  // mkdir's mode only applies on creation and is filtered by umask; enforce it.
   try {
-    if ((statSync(dir).mode & 0o777) !== 0o700) chmodSync(dir, 0o700);
+    mkdirSync(dir, { mode: 0o700 });
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
+  }
+  // mkdir's mode only applies on creation and is filtered by umask. Only ever *remove*
+  // group/other bits; never loosen a directory the user locked down further.
+  try {
+    const mode = statSync(dir).mode & 0o777;
+    if ((mode & 0o077) !== 0) chmodSync(dir, mode & 0o700);
   } catch {
     // Filesystems without POSIX permissions (e.g. exFAT) can't honor this. Not fatal.
   }

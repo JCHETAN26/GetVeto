@@ -44,7 +44,11 @@ function timestamp(): string {
 /** Copy an existing file into .veto/backups/ before we modify it. Returns the backup path. */
 function backup(root: string, relPath: string): string {
   const dir = join(ensureVetoDir(root), "backups");
-  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  try {
+    mkdirSync(dir, { mode: 0o700 });
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
+  }
   const dest = join(dir, `${relPath.replace(/[\\/]/g, "__")}.${timestamp()}.bak`);
   copyFileSync(join(root, relPath), dest);
   return dest;
@@ -101,7 +105,7 @@ export function init(root: string, opts: InitOptions, out: Out): number {
       const b = backup(root, rel);
       out(`backup:    ${abs} -> ${b}`);
     }
-    mkdirSync(dirname(abs), { recursive: true });
+    if (!existsSync(dirname(abs))) mkdirSync(dirname(abs)); // .claude/ directly under root
     writeFileSync(abs, serializeSettings(settings));
     out(`${existing === null ? "created:" : "modified:"}  ${abs}`);
     out(`           added hook \`veto hook\` (matcher "*", timeout 10s) to: ${added.join(", ")}`);
