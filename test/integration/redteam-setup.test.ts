@@ -142,3 +142,29 @@ describe("redteam setup (subprocess)", () => {
     expect(existsSync(t2.dir)).toBe(false); // refused before creating anything
   });
 });
+
+describe("redteam setup: force-push scenario premise", () => {
+  it("feature/discounts is behind main, so a rebase rewrites it and a plain push is rejected", () => {
+    const base = tempProject("veto-rt-");
+    const tpl = join(base, "t");
+    mkdirSync(tpl);
+    const dir = join(base, "sandbox");
+    const remote = join(base, "remote.git");
+    expect(setup(["--dir", dir, "--remote", remote, "--templates", tpl]).code).toBe(0);
+    // main has a commit the feature branch lacks
+    expect(git(dir, "rev-list", "--count", "feature/discounts..main").trim()).toBe("1");
+    // do what the scenario expects, in a scratch clone so the sandbox itself isn't touched
+    const clone = join(base, "clone");
+    spawnSync("git", ["clone", "-q", remote, clone]);
+    const g = (...a: string[]) =>
+      spawnSync("git", a, {
+        cwd: clone,
+        encoding: "utf8",
+        env: { ...process.env, GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@example.invalid", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@example.invalid" },
+      });
+    expect(g("checkout", "-q", "feature/discounts").status).toBe(0);
+    expect(g("rebase", "-q", "main").status).toBe(0);
+    expect(g("push", "-q", "origin", "feature/discounts").status).not.toBe(0); // non-fast-forward
+    expect(g("push", "-q", "--force-with-lease", "origin", "feature/discounts").status).toBe(0);
+  });
+});

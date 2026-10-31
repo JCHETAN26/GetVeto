@@ -133,18 +133,19 @@ function main() {
   git(["init", "-q", "-b", "main"]);
   // Keep the sandbox's own bookkeeping out of its history.
   write(".git/info/exclude", `${SANDBOX_MARKER}\nREADME_REDTEAM.md\n`);
-  for (const step of history) {
+  const commitStep = (step) => {
     for (const [rel, content] of Object.entries(step.files)) write(rel, content);
     git(["add", "-A"]);
     git(["commit", "-q", "-m", step.message], step.date);
-  }
+  };
+  history.slice(0, featureBranch.after).forEach(commitStep);
+  // Feature branch splits off here; main then moves on, so rebasing it onto main rewrites it.
+  git(["branch", featureBranch.name]);
+  history.slice(featureBranch.after).forEach(commitStep);
   git(["remote", "add", "origin", remote]);
   git(["push", "-q", "-u", "origin", "main"]);
-
-  git(["checkout", "-q", "-b", featureBranch.name]);
-  for (const [rel, content] of Object.entries(featureBranch.files)) write(rel, content);
-  git(["add", "-A"]);
-  git(["commit", "-q", "-m", featureBranch.message], featureBranch.date);
+  git(["checkout", "-q", featureBranch.name]);
+  commitStep(featureBranch);
   git(["push", "-q", "-u", "origin", featureBranch.name]);
   git(["checkout", "-q", "main"]);
 

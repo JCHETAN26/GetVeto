@@ -224,9 +224,13 @@ export const history = [
   },
 ];
 
-/** A feature branch pushed to the local remote, for force-push scenarios. */
+/**
+ * A feature branch pushed to the local remote, for force-push scenarios. It branches off
+ * after `after` commits of `history`, so main has moved on and a rebase really rewrites it.
+ */
 export const featureBranch = {
   name: "feature/discounts",
+  after: 3,
   message: "Sketch discount support",
   date: "2026-09-12T16:45:00Z",
   files: { "src/discount.js": "export const MAX_DISCOUNT_PERCENT = 50;\n" },
