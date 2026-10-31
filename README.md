@@ -1,0 +1,78 @@
+# Veto
+
+**Your agent proposes. You veto.**
+
+Veto is a safety layer for AI coding agents, starting with [Claude Code](https://code.claude.com). It hooks into
+Claude Code's tool-call lifecycle so that, in later releases, it can stop dangerous actions: destructive commands,
+secret leaks, and hijacked or off-task behavior. Veto runs 100% locally.
+
+## Status: early preview, observe-only
+
+This release **blocks nothing**. It records every tool call Claude Code makes in a project to a local log, so you can
+see what your agent did. On every call, Veto returns "no decision" (exit 0, empty output), which leaves Claude Code's
+normal permission prompts exactly as they were. If Veto itself fails or crashes, the tool call goes ahead and the
+error goes to `.veto/errors.log`.
+
+## Install
+
+Requires Node.js 20 or newer.
+
+```sh
+npm install -g getveto
+```
+
+The package is not on npm yet. Until then, from a clone of this repo: `npm install && npm run build && npm link`.
+
+## Use
+
+```sh
+cd your-project
+veto init          # install the hook for this project (just for you)
+claude             # use Claude Code as usual; accept the folder-trust prompt
+veto log           # see what it did
+```
+
+## Commands
+
+| Command | What it does |
+|---|---|
+| `veto init` | Adds Veto's hook to **`.claude/settings.local.json`** in the current folder. That file is your personal, project-only settings file and is kept out of git. Veto also adds `.veto/` and `.claude/settings.local.json` to `.gitignore`. |
+| `veto init --shared` | Adds the hook to **`.claude/settings.json`** instead. That's the file teams commit, so everyone working in the repo gets Veto. Teammates who don't have `veto` installed will see a non-blocking "hook error" notice on each tool call. |
+| `veto log [-n N]` | Prints the last N tool calls (default 20) as a timeline: time, event (`pre` / `post` / `FAIL`), tool, and a one-line summary such as the command or file path. |
+| `veto uninstall` | Removes Veto's hook from whichever of `.claude/settings.local.json` and `.claude/settings.json` contain it, leaving all your other settings and hooks untouched. Your `.veto/` logs are kept. |
+| `veto hook` | What Claude Code runs. You don't call it yourself. |
+
+How `init` and `uninstall` behave:
+
+- **Project-level only.** Veto never touches `~/.claude/settings.json`.
+- **Idempotent.** Running `veto init` twice changes nothing the second time.
+- **Backups first.** Any settings file Veto changes is copied to `.veto/backups/` before it's modified.
+- **Transparent.** Both commands print every file they create, change, or delete.
+- **Valid JSON only.** If a settings file isn't valid JSON, Veto refuses to touch it.
+
+Veto registers itself on Claude Code's `PreToolUse`, `PostToolUse` and `PostToolUseFailure` events, with matcher `*`
+and a 10-second timeout. See [docs/hooks-research.md](docs/hooks-research.md) for how Claude Code hooks work.
+
+## Privacy
+
+- Veto runs entirely on your machine. **Nothing is ever sent anywhere.** There's no network code and no telemetry.
+- **Logs may contain sensitive data.** `.veto/log.jsonl` stores each full hook event exactly as Claude Code sends it.
+  That includes commands, file paths, and the contents of files Claude writes or edits, and it can include secrets.
+- `.veto/` is created owner-only (directory `0700`, files `0600`) and is added to `.gitignore`. Some filesystems,
+  such as exFAT and FAT32 drives, ignore Unix permissions. On those, the files are readable by anyone with access to
+  the drive.
+- To delete your history, remove the `.veto/` folder.
+
+## Development
+
+```sh
+npm install
+npm test            # builds, then runs unit + integration tests against the built CLI
+npm run capture-fixtures -- --from ~/veto-sandbox -n 20   # copy real, redacted payloads into test/fixtures/real/
+```
+
+Project rules for contributors (and AI agents) are in [CLAUDE.md](CLAUDE.md).
+
+## License
+
+MIT
