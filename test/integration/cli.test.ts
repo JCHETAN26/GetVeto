@@ -22,6 +22,7 @@ describe("veto init", () => {
     expect(r.stdout).toContain(`created:  ${join(root, LOCAL)}`);
     expect(r.stdout).toContain("PreToolUse, PostToolUse, PostToolUseFailure");
     expect(r.stdout).toContain(".gitignore");
+    expect(r.stdout).toContain(`created:   ${join(root, ".veto")}/`);
   });
 
   it("is idempotent: second run changes nothing and makes no backup", async () => {

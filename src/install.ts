@@ -86,6 +86,7 @@ export function init(root: string, opts: InitOptions, out: Out): number {
   const rel = opts.shared ? SHARED_SETTINGS : LOCAL_SETTINGS;
   const abs = join(root, rel);
   let changes = 0;
+  const vetoExisted = existsSync(join(root, ".veto"));
 
   const gitRoot = findGitRoot(root);
   if (gitRoot && gitRoot !== root) {
@@ -118,7 +119,6 @@ export function init(root: string, opts: InitOptions, out: Out): number {
   }
 
   // 2. .veto/ directory (0700)
-  const vetoExisted = existsSync(join(root, ".veto"));
   ensureVetoDir(root);
   if (!vetoExisted) {
     out(`created:   ${join(root, ".veto")}/ (mode 0700; logs are written here)`);
