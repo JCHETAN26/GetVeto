@@ -2,7 +2,8 @@
 // (see docs/decisions.md). No top-level side effects, so callers can load it lazily with
 // `await import("./shell/parse.js")`. Never throws.
 import { forEachChild, parse } from "unbash";
-import type { Command, Redirection, SyntaxNode, Word } from "unbash";
+import type { Command, Redirection, SyntaxNode, Word, WordPart } from "unbash";
+import { homedir } from "node:os";
 
 export interface Redirect {
   /** Operator as written: ">", ">>", "<", "2>&1"-style ">&", "<<", "<<<", ... */
@@ -13,13 +14,42 @@ export interface Redirect {
   target: string | null;
   /** Source descriptor when written explicitly (the 2 in 2>&1), else null. */
   fd: number | null;
+  /** The target contains a variable, substitution, glob or brace expansion we didn't expand. */
+  unresolved: boolean;
+}
+
+/** One argument word. */
+export interface Arg {
+  /** Quotes removed; ~, $HOME, ${HOME}, $PWD, $OLDPWD expanded when known. */
+  value: string;
+  /** As written in the source. */
+  raw: string;
+  /**
+   * Contains something whose value isn't known statically: any other $VAR / ${...},
+   * $(...) / `...`, $((...)), <(...), an unquoted glob (*, ?, [..]) or a {a,b} brace
+   * expansion. Treat such paths conservatively. `value` keeps that part's source text.
+   */
+  unresolved: boolean;
+}
+
+export interface ParseOptions {
+  /** Directory the command starts in; enables $PWD. */
+  cwd?: string;
+  /** Home directory for ~ and $HOME. Default: os.homedir(). */
+  home?: string;
+  /** Value of $OLDPWD at the start, if known. */
+  oldpwd?: string;
 }
 
 export interface SimpleCommand {
   /** Program name with quotes removed, after wrappers are stripped. null for bare assignments. */
   program: string | null;
-  /** Every argument after the program, quotes removed. */
+  /** True when the program word itself isn't known statically (e.g. `$EDITOR file`). */
+  programUnresolved: boolean;
+  /** Every argument after the program: `value` of each entry in `argWords`. */
   args: string[];
+  /** The same arguments with source text and the `unresolved` marker. */
+  argWords: Arg[];
   /** The arguments that look like options ("-x", "--long"), up to a "--". */
   flags: string[];
   redirects: Redirect[];
@@ -39,6 +69,17 @@ export interface SimpleCommand {
 }
 
 export type ParseResult = { commands: SimpleCommand[] } | { parseError: string };
+
+/** What the shell knows at a point in the script. */
+interface State {
+  home: string;
+  cwd: string | null;
+  oldpwd: string | null;
+  /** Variables reassigned in the script (HOME=..., export PWD=...): no longer known. */
+  reassigned: Set<string>;
+}
+const cloneState = (s: State): State => ({ ...s, reassigned: new Set(s.reassigned) });
+const KNOWN_VARS = new Set(["HOME", "PWD", "OLDPWD"]);
 
 interface Ctx {
   inPipeline: boolean;
@@ -75,32 +116,33 @@ const WRAPPERS: Record<string, WrapperSpec> = {
 const isAssignment = (s: string) => /^[A-Za-z_][A-Za-z0-9_]*=/.test(s);
 const base = (p: string) => p.slice(p.lastIndexOf("/") + 1);
 
-export function parseCommand(command: string): ParseResult {
+export function parseCommand(command: string, opts: ParseOptions = {}): ParseResult {
   try {
     if (typeof command !== "string") return { parseError: "command is not a string" };
     const ast = parse(command);
     const errs = ast.errors ?? [];
     if (errs.length > 0) return { parseError: errs.map((e) => `${e.message} (at ${e.pos})`).join("; ") };
     const out: SimpleCommand[] = [];
-    walk(ast, { inPipeline: false, inSubstitution: false, timed: false, extraRedirects: [] }, command, out);
+    const st: State = { home: opts.home ?? homedir(), cwd: opts.cwd ?? null, oldpwd: opts.oldpwd ?? null, reassigned: new Set() };
+    walk(ast, { inPipeline: false, inSubstitution: false, timed: false, extraRedirects: [] }, st, command, out);
     return { commands: out };
   } catch (e) {
     return { parseError: `parser failure: ${(e as Error)?.message ?? String(e)}` };
   }
 }
 
-function walk(node: SyntaxNode, ctx: Ctx, src: string, out: SimpleCommand[]): void {
+function walk(node: SyntaxNode, ctx: Ctx, st: State, src: string, out: SimpleCommand[]): void {
   switch (node.type) {
     case "Pipeline": {
       const timed = ctx.timed || node.prefixes.some((p) => p.type === "Time");
       const inPipeline = ctx.inPipeline || node.commands.length > 1;
-      for (const c of node.commands) walk(c, { ...ctx, timed, inPipeline }, src, out);
+      for (const c of node.commands) walk(c, { ...ctx, timed, inPipeline }, st, src, out);
       return;
     }
     case "Redirected": {
-      const extra = [...ctx.extraRedirects, ...node.redirects.map(toRedirect)];
-      walk(node.command, { ...ctx, extraRedirects: extra }, src, out);
-      for (const r of node.redirects) forEachChild(r, (ch) => walk(ch, ctx, src, out));
+      const extra = [...ctx.extraRedirects, ...node.redirects.map((r) => toRedirect(r, st))];
+      for (const r of node.redirects) forEachChild(r, (ch) => walk(ch, ctx, cloneState(st), src, out));
+      walk(node.command, { ...ctx, extraRedirects: extra }, st, src, out);
       return;
     }
     case "CommandExpansion":
@@ -109,58 +151,117 @@ function walk(node: SyntaxNode, ctx: Ctx, src: string, out: SimpleCommand[]): vo
       // Positions in a substitution's script index the outer source, except for escaped
       // backtick scripts, which carry their own decoded `source`.
       const inner = { ...ctx, inSubstitution: true, inPipeline: false, timed: false, extraRedirects: [] };
-      if (node.script) walk(node.script, inner, node.script.source ?? src, out);
+      if (node.script) walk(node.script, inner, cloneState(st), node.script.source ?? src, out);
       return;
     }
-    case "Command":
-      out.push(simple(node, ctx, src));
-      break;
+    case "Command": {
+      // Substitutions in the words run before the command, against the state before it.
+      const before = cloneState(st);
+      out.push(simple(node, ctx, st, src));
+      forEachChild(node, (ch) => walk(ch, ctx, before, src, out));
+      return;
+    }
   }
-  forEachChild(node, (ch) => walk(ch, ctx, src, out));
+  forEachChild(node, (ch) => walk(ch, ctx, st, src, out));
 }
 
-function wordText(w: Word | undefined): string {
-  return w ? w.value : "";
+function known(name: string, st: State): string | null {
+  if (!KNOWN_VARS.has(name) || st.reassigned.has(name)) return null;
+  return name === "HOME" ? st.home : name === "PWD" ? st.cwd : st.oldpwd;
 }
 
-function toRedirect(r: Redirection): Redirect {
+/** Leading unquoted ~ or ~/ -> home. ~user/... is left as written (see classifyPath). */
+function tilde(text: string, st: State, acc: { unresolved: boolean }): string {
+  if (!(text === "~" || text.startsWith("~/"))) return text;
+  if (st.reassigned.has("HOME")) {
+    acc.unresolved = true;
+    return text;
+  }
+  return st.home + text.slice(1);
+}
+
+function expandParts(parts: readonly WordPart[], st: State, quoted: boolean, acc: { v: string; unresolved: boolean }): void {
+  parts.forEach((p, idx) => {
+    switch (p.type) {
+      case "Literal":
+        acc.v += !quoted && idx === 0 && acc.v === "" ? tilde(p.value, st, acc) : p.value;
+        return;
+      case "SingleQuoted":
+      case "AnsiCQuoted":
+        acc.v += p.value;
+        return;
+      case "DoubleQuoted":
+      case "LocaleString":
+        expandParts(p.parts as readonly WordPart[], st, true, acc);
+        return;
+      case "SimpleExpansion": {
+        const val = known(p.text.slice(1), st);
+        if (val === null) acc.unresolved = true;
+        acc.v += val ?? p.text;
+        return;
+      }
+      case "ParameterExpansion": {
+        const val = !p.prefix && !p.index && !p.operation ? known(p.parameter, st) : null;
+        if (val === null) acc.unresolved = true;
+        acc.v += val ?? p.text;
+        return;
+      }
+      default:
+        // Glob, ExtendedGlob, BraceExpansion, CommandExpansion, ArithmeticExpansion,
+        // ProcessSubstitution: value unknown until runtime.
+        acc.unresolved = true;
+        acc.v += p.text;
+    }
+  });
+}
+
+function expandWord(w: Word, st: State): Arg {
+  const acc = { v: "", unresolved: false };
+  if (!w.parts) return { value: tilde(w.value, st, acc), raw: w.text, unresolved: acc.unresolved };
+  expandParts(w.parts, st, false, acc);
+  return { value: acc.v, raw: w.text, unresolved: acc.unresolved };
+}
+
+function toRedirect(r: Redirection, st: State): Redirect {
   const fd = r.descriptor?.type === "FileDescriptor" ? r.descriptor.value : null;
-  if (r.type === "HereDoc") return { op: r.operator, kind: "heredoc", target: r.delimiter?.value ?? null, fd };
-  if (r.type === "HereString") return { op: r.operator, kind: "herestring", target: wordText(r.target), fd };
-  const target = r.target ? r.target.value : null;
+  if (r.type === "HereDoc") return { op: r.operator, kind: "heredoc", target: r.delimiter?.value ?? null, fd, unresolved: false };
+  const t = r.target ? expandWord(r.target, st) : null;
+  if (r.type === "HereString") return { op: r.operator, kind: "herestring", target: t?.value ?? "", fd, unresolved: t?.unresolved ?? false };
+  const target = t?.value ?? null;
   const dup = (r.operator === ">&" || r.operator === "<&") && target !== null && /^(\d+|-)$/.test(target);
-  return { op: r.operator, kind: dup ? "fd" : "file", target, fd };
+  return { op: r.operator, kind: dup ? "fd" : "file", target, fd, unresolved: t?.unresolved ?? false };
 }
 
-function simple(node: Command, ctx: Ctx, src: string): SimpleCommand {
+function simple(node: Command, ctx: Ctx, st: State, src: string): SimpleCommand {
   const assignments: string[] = [];
   const redirects: Redirect[] = [];
   for (const p of node.prefix) {
     if (p.type === "Assignment") assignments.push(p.name);
-    else redirects.push(toRedirect(p));
+    else redirects.push(toRedirect(p, st));
   }
-  const words: string[] = [];
-  if (node.name) words.push(node.name.value);
+  const words: Arg[] = [];
+  if (node.name) words.push(expandWord(node.name, st));
   for (const s of node.suffix) {
-    if (s.type === "Word") words.push(s.value);
-    else if (s.type === "Assignment") words.push(s.text);
-    else redirects.push(toRedirect(s));
+    if (s.type === "Word") words.push(expandWord(s, st));
+    else if (s.type === "Assignment") words.push({ value: s.text, raw: s.text, unresolved: false });
+    else redirects.push(toRedirect(s, st));
   }
   redirects.push(...ctx.extraRedirects);
 
   const wrappers: string[] = ctx.timed ? ["time"] : [];
+  const val = (k: number) => words[k]!.value;
   let i = 0;
   wrap: while (i < words.length) {
-    const name = base(words[i]!);
+    const name = base(val(i));
     const spec = WRAPPERS[name];
     if (!spec) break;
     // `command -v npm` / `command -V npm` look a program up; nothing runs.
-    for (let k = i + 1; spec.notWrapper && k < words.length && words[k]!.startsWith("-") && words[k] !== "--"; k++) {
-      if (spec.notWrapper.has(words[k]!)) break wrap;
+    for (let k = i + 1; spec.notWrapper && k < words.length && val(k).startsWith("-") && val(k) !== "--"; k++) {
+      if (spec.notWrapper.has(val(k))) break wrap;
     }
     let j = i + 1;
     while (j < words.length) {
-      const w = words[j]!;
+      const w = val(j);
       if (w === "--") {
         j++;
         break;
@@ -181,16 +282,29 @@ function simple(node: Command, ctx: Ctx, src: string): SimpleCommand {
     i = j;
   }
   const rest = words.slice(i);
-  const program = rest.length > 0 ? rest[0]! : null;
-  const args = rest.slice(1);
+  const argWords = rest.slice(1);
+  const args = argWords.map((a) => a.value);
   const flags: string[] = [];
   for (const a of args) {
     if (a === "--") break;
     if (a.startsWith("-") && a !== "-") flags.push(a);
   }
+  const program = rest[0]?.value ?? null;
+
+  // Reassigning a variable we expand makes it unknown from here on.
+  if (program === null) for (const n of assignments) if (KNOWN_VARS.has(n)) st.reassigned.add(n);
+  if (program !== null && ["export", "declare", "typeset", "local", "readonly"].includes(program)) {
+    for (const a of args) {
+      const n = a.split("=")[0]!;
+      if (KNOWN_VARS.has(n) && a.includes("=")) st.reassigned.add(n);
+    }
+  }
+
   return {
     program,
+    programUnresolved: rest[0]?.unresolved ?? false,
     args,
+    argWords,
     flags,
     redirects,
     assignments,

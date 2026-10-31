@@ -87,7 +87,7 @@ describe("parseCommand on everyday dev commands", () => {
     expect(c[1]).toMatchObject({ program: "git", args: ["rev-parse", "HEAD"], inSubstitution: true });
     const b = cmds("echo `date +%Y` > year.txt");
     expect(b.map((x) => [x.program, x.inSubstitution])).toEqual([["echo", false], ["date", true]]);
-    expect(b[0]!.redirects).toEqual([{ op: ">", kind: "file", target: "year.txt", fd: null }]);
+    expect(b[0]!.redirects).toEqual([{ op: ">", kind: "file", target: "year.txt", fd: null, unresolved: false }]);
     // nested
     expect(programs('echo "$(basename "$(pwd)")"')).toEqual(["echo", "basename", "pwd"]);
   });
@@ -95,12 +95,12 @@ describe("parseCommand on everyday dev commands", () => {
   it("subshells and brace groups, with redirects applied to the inner commands", () => {
     const c = cmds("(cd packages/app && npm test) 2>&1 | tee test.log");
     expect(c.map((x) => x.program)).toEqual(["cd", "npm", "tee"]);
-    expect(c[1]!.redirects).toEqual([{ op: ">&", kind: "fd", target: "1", fd: 2 }]);
+    expect(c[1]!.redirects).toEqual([{ op: ">&", kind: "fd", target: "1", fd: 2, unresolved: false }]);
     expect(c.every((x) => x.inPipeline)).toBe(true);
     const g = cmds("{ npm run lint; npm test; } > ci.log");
     expect(g.map((x) => x.redirects)).toEqual([
-      [{ op: ">", kind: "file", target: "ci.log", fd: null }],
-      [{ op: ">", kind: "file", target: "ci.log", fd: null }],
+      [{ op: ">", kind: "file", target: "ci.log", fd: null, unresolved: false }],
+      [{ op: ">", kind: "file", target: "ci.log", fd: null, unresolved: false }],
     ]);
   });
 
@@ -112,25 +112,25 @@ describe("parseCommand on everyday dev commands", () => {
 
   it("redirects: output, append, input, stderr", () => {
     expect(cmds("npm test > out.log 2> err.log")[0]!.redirects).toEqual([
-      { op: ">", kind: "file", target: "out.log", fd: null },
-      { op: ">", kind: "file", target: "err.log", fd: 2 },
+      { op: ">", kind: "file", target: "out.log", fd: null, unresolved: false },
+      { op: ">", kind: "file", target: "err.log", fd: 2, unresolved: false },
     ]);
-    expect(cmds("echo done >> build.log")[0]!.redirects).toEqual([{ op: ">>", kind: "file", target: "build.log", fd: null }]);
-    expect(cmds("wc -l < src/index.js")[0]!.redirects).toEqual([{ op: "<", kind: "file", target: "src/index.js", fd: null }]);
-    expect(cmds("node -p 1 <<< 'x'")[0]!.redirects).toEqual([{ op: "<<<", kind: "herestring", target: "x", fd: null }]);
+    expect(cmds("echo done >> build.log")[0]!.redirects).toEqual([{ op: ">>", kind: "file", target: "build.log", fd: null, unresolved: false }]);
+    expect(cmds("wc -l < src/index.js")[0]!.redirects).toEqual([{ op: "<", kind: "file", target: "src/index.js", fd: null, unresolved: false }]);
+    expect(cmds("node -p 1 <<< 'x'")[0]!.redirects).toEqual([{ op: "<<<", kind: "herestring", target: "x", fd: null, unresolved: false }]);
   });
 
   it("heredocs: delimiter recorded; unquoted bodies' substitutions are walked, quoted ones aren't", () => {
     const c = cmds("cat > CHANGELOG.md <<EOF\n## $(date +%F)\n- fixed tests\nEOF");
     expect(c[0]).toMatchObject({ program: "cat", args: [] });
     expect(c[0]!.redirects).toEqual([
-      { op: ">", kind: "file", target: "CHANGELOG.md", fd: null },
-      { op: "<<", kind: "heredoc", target: "EOF", fd: null },
+      { op: ">", kind: "file", target: "CHANGELOG.md", fd: null, unresolved: false },
+      { op: "<<", kind: "heredoc", target: "EOF", fd: null, unresolved: false },
     ]);
     expect(c[1]).toMatchObject({ program: "date", inSubstitution: true });
     const q = cmds("cat <<'EOF' > tpl.sh\necho $(not run)\nEOF");
     expect(q.map((x) => x.program)).toEqual(["cat"]);
-    expect(q[0]!.redirects[0]).toEqual({ op: "<<", kind: "heredoc", target: "EOF", fd: null });
+    expect(q[0]!.redirects[0]).toEqual({ op: "<<", kind: "heredoc", target: "EOF", fd: null, unresolved: false });
   });
 
   it("wrappers are stripped and recorded: sudo, env, xargs, time, nohup", () => {
@@ -204,5 +204,68 @@ describe("more wrappers: timeout, nice, command, exec, stdbuf, ionice", () => {
     expect(cmds("nice")[0]).toMatchObject({ program: "nice", wrappers: [] });
     expect(cmds("sudo")[0]).toMatchObject({ program: "sudo", wrappers: [] });
     expect(cmds("exec > build.log")[0]).toMatchObject({ program: null, wrappers: ["exec"], redirects: [{ op: ">", target: "build.log" }] });
+  });
+});
+
+describe("variables, ~, globs and brace expansion", () => {
+  const opts = { cwd: "/home/alice/app", home: "/home/alice", oldpwd: "/home/alice" };
+  const one = (c: string) => {
+    const r = parseCommand(c, opts);
+    if ("parseError" in r) throw new Error(r.parseError);
+    return r.commands[0]!;
+  };
+
+  it("expands $HOME, ${HOME}, $PWD, $OLDPWD and ~ when known", () => {
+    expect(one("echo $HOME").argWords).toEqual([{ value: "/home/alice", raw: "$HOME", unresolved: false }]);
+    expect(one('ls "${HOME}/Downloads"').args).toEqual(["/home/alice/Downloads"]);
+    expect(one("ls $PWD/src").args).toEqual(["/home/alice/app/src"]);
+    expect(one("cd $OLDPWD").args).toEqual(["/home/alice"]);
+    expect(one("ls ~ ~/notes").args).toEqual(["/home/alice", "/home/alice/notes"]);
+  });
+
+  it("quoted ~ is literal; ~user is left for classifyPath", () => {
+    expect(one('ls "~/x"').argWords[0]).toEqual({ value: "~/x", raw: '"~/x"', unresolved: false });
+    expect(one("ls ~bob/shared").args).toEqual(["~bob/shared"]);
+  });
+
+  it("marks other variables, substitutions, globs and braces unresolved", () => {
+    const c = one('cp $SRC "${OUT:-dist}" src/*.js file?.txt [ab].md {a,b}.json "$(npm prefix)/x" plain.txt');
+    expect(c.argWords.map((a) => [a.raw, a.unresolved])).toEqual([
+      ["$SRC", true],
+      ['"${OUT:-dist}"', true],
+      ["src/*.js", true],
+      ["file?.txt", true],
+      ["[ab].md", true],
+      ["{a,b}.json", true],
+      ['"$(npm prefix)/x"', true],
+      ["plain.txt", false],
+    ]);
+  });
+
+  it("quoted glob characters are literal", () => {
+    expect(one("git ls-files '*.js' \"src/*\"").argWords.map((a) => a.unresolved)).toEqual([false, false, false]);
+  });
+
+  it("without a cwd, $PWD is unresolved; redirect targets are marked too", () => {
+    const r = parseCommand("echo hi > $PWD/out.txt 2> $LOGFILE") as { commands: SimpleCommand[] };
+    expect(r.commands[0]!.redirects.map((x) => [x.target, x.unresolved])).toEqual([
+      ["$PWD/out.txt", true],
+      ["$LOGFILE", true],
+    ]);
+  });
+
+  it("an unknown program word is flagged", () => {
+    expect(one("$EDITOR README.md")).toMatchObject({ program: "$EDITOR", programUnresolved: true });
+    expect(one("npm test").programUnresolved).toBe(false);
+  });
+
+  it("reassigning HOME makes later $HOME / ~ unknown", () => {
+    const r = parseCommand("HOME=/tmp/h; ls ~ $HOME", opts) as { commands: SimpleCommand[] };
+    expect(r.commands[1]!.argWords.map((a) => [a.value, a.unresolved])).toEqual([
+      ["~", true],
+      ["$HOME", true],
+    ]);
+    // a prefix assignment only affects that command's environment, not its own expansion
+    expect(one("HOME=/x echo $HOME").args).toEqual(["/home/alice"]);
   });
 });
