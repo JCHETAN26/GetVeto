@@ -14,8 +14,8 @@ describe("regression: real events", () => {
     const v = await evaluate(ev, { projectRoot: String(ev.cwd), home: "/home/REDACTED_USER" });
     expect(v.verdict).toBe("flag");
     expect(v.findings).toEqual([
-      { ruleId: "destructive/delete-outside-project", category: "destructive", severity: "medium", reason: "rm deletes a file in your home directory (~/veto-test-junk/fake1.txt)." },
-      { ruleId: "destructive/delete-outside-project", category: "destructive", severity: "medium", reason: "rm deletes a file in your home directory (~/veto-test-junk/fake2.txt)." },
+      { ruleId: "destructive/delete-outside-project", category: "destructive", severity: "medium", reason: "rm deletes a file in your home directory (~/veto-test-junk/fake1.txt).", suggestion: "Confirm with the user before deleting files outside the project, or work inside the project." },
+      { ruleId: "destructive/delete-outside-project", category: "destructive", severity: "medium", reason: "rm deletes a file in your home directory (~/veto-test-junk/fake2.txt).", suggestion: "Confirm with the user before deleting files outside the project, or work inside the project." },
     ]);
   });
 });

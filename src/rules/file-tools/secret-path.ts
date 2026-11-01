@@ -30,6 +30,14 @@ export const secretPath: Rule = {
     if (!path) return [];
     const why = secretLooking(path, ctx.cwd, ctx.home);
     if (!why) return [];
-    return [{ ruleId: ID, category: "file-tools", severity: "medium", reason: `${ctx.toolName} on ${why}, which may hold secrets: ${basename(path)}.` }];
+    return [
+      {
+        ruleId: ID,
+        category: "file-tools",
+        severity: "medium",
+        reason: `${ctx.toolName} on ${why}, which may hold secrets: ${basename(path)}.`,
+        suggestion: "Use a template such as .env.example, or ask the user for the specific value you need.",
+      },
+    ];
   },
 };

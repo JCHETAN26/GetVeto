@@ -9,8 +9,10 @@ export interface Finding {
   ruleId: string;
   category: Category;
   severity: Severity;
-  /** One short human-readable sentence. */
+  /** One short human-readable sentence naming the specific target. */
   reason: string;
+  /** A safer alternative Claude can take instead, when one exists (one short sentence). */
+  suggestion?: string;
 }
 
 /** Answers "does this git work tree have changes a discard would lose?" null = couldn't tell. */

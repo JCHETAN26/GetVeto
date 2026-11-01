@@ -64,7 +64,13 @@ describe("veto hook in watch mode (real fixtures)", () => {
     const line = await hook(withInput(bash.raw, root, { command: "git push -f origin main" }), root);
     expect(line.verdict).toBe("flag");
     expect(line.findings).toEqual([
-      { ruleId: "destructive/force-push", category: "destructive", severity: "high", reason: "Force push to main rewrites shared history." },
+      {
+        ruleId: "destructive/force-push",
+        category: "destructive",
+        severity: "high",
+        reason: "Force push to main rewrites shared history.",
+        suggestion: "Push to a new branch and open a pull request instead of force-pushing.",
+      },
     ]);
   });
 

@@ -7,7 +7,9 @@ import { display, hasLong, hasShort, operandsFromStdin, resolveTarget, splitArgs
 import type { Finding, Rule, RuleContext, Severity } from "../types.js";
 
 const ID = "destructive/delete-outside-project";
-const finding = (severity: Severity, reason: string): Finding => ({ ruleId: ID, category: "destructive", severity, reason });
+const DELETE_TIP = "Confirm with the user before deleting files outside the project, or work inside the project.";
+const MOVE_TIP = "Copy the file (cp) instead of moving it, or confirm with the user first.";
+const finding = (severity: Severity, reason: string, suggestion = DELETE_TIP): Finding => ({ ruleId: ID, category: "destructive", severity, reason, suggestion });
 
 const PLACE: Record<string, string> = { home: "your home directory", system: "a system location", "outside-project": "outside the project" };
 const SEVERITY: Record<string, Severity> = { home: "medium", "outside-project": "medium", system: "high" };
@@ -105,9 +107,9 @@ function checkMove(c: SimpleCommand, ctx: RuleContext): Finding[] {
     if (st.cls === "inside-project") continue;
     const srcUnknown = st.abs === null || !st.exact;
     if (srcUnknown || destUnknown) {
-      out.push(finding("low", `mv of ${arg.raw} into ${destUnknown ? dest.raw : into}; the paths couldn't be resolved.`));
+      out.push(finding("low", `mv of ${arg.raw} into ${destUnknown ? dest.raw : into}; the paths couldn't be resolved.`, MOVE_TIP));
     } else {
-      out.push(finding("medium", `mv moves a file out of ${PLACE[st.cls] ?? st.cls} (${display(st.abs, arg, ctx)}) into ${into}.`));
+      out.push(finding("medium", `mv moves a file out of ${PLACE[st.cls] ?? st.cls} (${display(st.abs, arg, ctx)}) into ${into}.`, MOVE_TIP));
     }
   }
   return out;

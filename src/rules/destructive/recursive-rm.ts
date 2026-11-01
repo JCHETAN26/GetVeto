@@ -7,7 +7,8 @@ const ID = "destructive/recursive-rm";
 /** Build output and caches: safe to delete because a build or install recreates them. */
 export const REGENERABLE = new Set(["dist", "build", "out", "node_modules", ".cache", "coverage", "tmp", ".next", ".turbo"]);
 
-const finding = (severity: Severity, reason: string): Finding => ({ ruleId: ID, category: "destructive", severity, reason });
+const SUGGESTION = "Delete only build output inside the project (dist, build, node_modules, ...), or confirm the exact paths with the user first.";
+const finding = (severity: Severity, reason: string): Finding => ({ ruleId: ID, category: "destructive", severity, reason, suggestion: SUGGESTION });
 
 /** Severity for deleting abs (or everything under it), or null when it's fine. */
 function judge(abs: string, cls: string, ctx: RuleContext): { severity: Severity; what: string } | null {

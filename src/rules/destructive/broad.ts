@@ -6,7 +6,13 @@ import { display, hasLong, hasShort, resolveTarget, splitArgs, unparsedNestedMat
 import { lower, type Finding, type Rule, type RuleContext, type Severity } from "../types.js";
 
 const ID = "destructive/broad";
-const finding = (severity: Severity, reason: string): Finding => ({ ruleId: ID, category: "destructive", severity, reason });
+const TIP = {
+  find: "Run the same find without -delete / -exec first to list what matches, and keep it inside the project.",
+  perms: "Change permissions on the specific files that need it instead of recursively.",
+  dd: "Double-check the of= target with the user before writing raw data.",
+  mkfs: "Confirm the exact device with the user; formatting can't be undone.",
+};
+const finding = (severity: Severity, reason: string, suggestion?: string): Finding => ({ ruleId: ID, category: "destructive", severity, reason, ...(suggestion ? { suggestion } : {}) });
 
 const PLACE: Record<string, string> = { home: "your home directory", system: "a system location", "outside-project": "outside the project" };
 
@@ -45,7 +51,7 @@ function findRule(c: SimpleCommand, ctx: RuleContext): Finding[] {
   for (const arg of starts) {
     const t = resolveTarget(arg, c.cwd, ctx);
     const sev = judge(t, { home: "high", system: "high", "outside-project": "medium" });
-    if (sev) out.push(finding(sev, `${action} in ${where(t, arg, ctx)}.`));
+    if (sev) out.push(finding(sev, `${action} in ${where(t, arg, ctx)}.`, TIP.find));
   }
   return out;
 }
@@ -58,7 +64,7 @@ function permsRule(c: SimpleCommand, ctx: RuleContext): Finding[] {
   for (const arg of paths) {
     const t = resolveTarget(arg, c.cwd, ctx);
     const sev = judge(t, { home: "high", system: "high" });
-    if (sev) out.push(finding(sev, `${c.program} -R on ${where(t, arg, ctx)}.`));
+    if (sev) out.push(finding(sev, `${c.program} -R on ${where(t, arg, ctx)}.`, TIP.perms));
   }
   return out;
 }
@@ -67,15 +73,15 @@ const HARMLESS_DEV = /^\/dev\/(null|zero|stdout|stderr|tty|fd\/\d+)$/;
 
 function ddRule(c: SimpleCommand, ctx: RuleContext): Finding[] {
   const of = c.argWords.find((a) => a.value.startsWith("of="));
-  if (!of) return [finding("low", "dd copies raw data; check its input and output.")];
+  if (!of) return [finding("low", "dd copies raw data; check its input and output.", TIP.dd)];
   const target: Arg = { value: of.value.slice(3), raw: of.raw.replace(/^of=/, ""), unresolved: of.unresolved };
   if (!target.unresolved && target.value.startsWith("/dev/") && !HARMLESS_DEV.test(target.value)) {
-    return [finding("high", `dd writes directly to the device ${target.value}.`)];
+    return [finding("high", `dd writes directly to the device ${target.value}.`, TIP.dd)];
   }
   const t = resolveTarget(target, c.cwd, ctx);
-  if (t.cls === "inside-project") return [finding("low", `dd writes raw data to ${display(t.abs, target, ctx)} in the project.`)];
-  if (!target.unresolved && HARMLESS_DEV.test(target.value)) return [finding("low", "dd copies raw data; check its input and output.")];
-  return [finding("medium", `dd writes raw data to ${where(t, target, ctx)}.`)];
+  if (t.cls === "inside-project") return [finding("low", `dd writes raw data to ${display(t.abs, target, ctx)} in the project.`, TIP.dd)];
+  if (!target.unresolved && HARMLESS_DEV.test(target.value)) return [finding("low", "dd copies raw data; check its input and output.", TIP.dd)];
+  return [finding("medium", `dd writes raw data to ${where(t, target, ctx)}.`, TIP.dd)];
 }
 
 export const broad: Rule = {
@@ -90,7 +96,7 @@ export const broad: Rule = {
       if (p === "find") out.push(...findRule(c, ctx));
       else if (p === "chmod" || p === "chown" || p === "chgrp") out.push(...permsRule(c, ctx));
       else if (p === "dd") out.push(...ddRule(c, ctx));
-      else if (p === "mkfs" || p.startsWith("mkfs.") || p === "mke2fs") out.push(finding("high", `${p} formats a filesystem, erasing what was on it.`));
+      else if (p === "mkfs" || p.startsWith("mkfs.") || p === "mke2fs") out.push(finding("high", `${p} formats a filesystem, erasing what was on it.`, TIP.mkfs));
     }
     const nested = /\b(find\b[^;&|]*(-delete|-exec\s+rm)|ch(mod|own|grp)\s+(\S+\s+)*-[a-zA-Z]*R|mkfs|\bdd\s)/;
     for (const c of unparsedNestedMatching(ctx, nested)) {

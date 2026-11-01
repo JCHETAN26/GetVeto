@@ -10,7 +10,12 @@ const PROTECTED = new Set(["main", "master"]);
 /** push options that take a separate value word. */
 const VALUE_OPTS = new Set(["--repo", "-o", "--push-option", "--receive-pack", "--exec"]);
 
-const finding = (severity: Severity, reason: string): Finding => ({ ruleId: ID, category: "destructive", severity, reason });
+const TIP = {
+  shared: "Push to a new branch and open a pull request instead of force-pushing.",
+  lease: "Use --force-with-lease so commits someone else pushed aren't overwritten.",
+  mirror: "Push the specific branches you mean instead of --mirror.",
+};
+const finding = (severity: Severity, reason: string, suggestion?: string): Finding => ({ ruleId: ID, category: "destructive", severity, reason, ...(suggestion ? { suggestion } : {}) });
 
 function branchOf(refspec: string): string {
   const dst = refspec.replace(/^\+/, "").split(":").pop() ?? "";
@@ -45,27 +50,27 @@ export const forcePush: Rule = {
       const lease = has("--force-with-lease");
 
       if (has("--mirror")) {
-        out.push(finding("high", "git push --mirror overwrites every ref on the remote."));
+        out.push(finding("high", "git push --mirror overwrites every ref on the remote.", TIP.mirror));
         continue;
       }
       if (!plain && !lease) continue;
       const kind = plain ? "Force push" : "Force push with lease";
       const all = has("--all") || has("--branches");
       if (refspecs.some((r) => r.unresolved)) {
-        out.push(finding(lower("high"), `${kind} to ${refspecs.map((r) => r.raw).join(" ")}; the branch couldn't be resolved.`));
+        out.push(finding(lower("high"), `${kind} to ${refspecs.map((r) => r.raw).join(" ")}; the branch couldn't be resolved.`, TIP.shared));
         continue;
       }
       if (refspecs.length === 0 || all) {
-        out.push(finding("high", `${kind} with no branch named rewrites ${all ? "every branch" : "the current branch's upstream"}.`));
+        out.push(finding("high", `${kind} with no branch named rewrites ${all ? "every branch" : "the current branch's upstream"}.`, TIP.shared));
         continue;
       }
       const branches = refspecs.map((r) => branchOf(r.value));
       const prot = branches.find((b) => PROTECTED.has(b));
-      if (prot) out.push(finding("high", `${kind} to ${prot} rewrites shared history.`));
-      else out.push(finding(plain ? "medium" : "low", `${kind} to ${branches.join(", ")} rewrites that branch on the remote.`));
+      if (prot) out.push(finding("high", `${kind} to ${prot} rewrites shared history.`, TIP.shared));
+      else out.push(finding(plain ? "medium" : "low", `${kind} to ${branches.join(", ")} rewrites that branch on the remote.`, plain ? TIP.lease : undefined));
     }
     for (const c of unparsedNestedMatching(ctx, /\bgit\b[^;&|]*\bpush\b[^;&|]*(\s-[a-zA-Z]*f|--force|--mirror|\s\+\S)/)) {
-      out.push(finding(lower("high"), `A nested script that couldn't be parsed looks like a force push (${c.nestedReason ?? "unparsed"}).`));
+      out.push(finding(lower("high"), `A nested script that couldn't be parsed looks like a force push (${c.nestedReason ?? "unparsed"}).`, TIP.shared));
     }
     return out;
   },

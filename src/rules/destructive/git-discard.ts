@@ -8,6 +8,9 @@ import type { Finding, GitStatus, Rule } from "../types.js";
 
 const ID = "destructive/git-discard";
 
+const STASH = "Run `git stash` first so the changes can be restored, or ask the user before discarding them.";
+const CLEAN = "Run `git clean -n` with the same flags first to list what would be deleted, and confirm with the user.";
+
 /** Which kind of work the command throws away, or null if it doesn't. */
 function discards(sub: string, args: Arg[]): { what: string; loses: keyof GitStatus } | null {
   const { options, operands } = splitArgs(args);
@@ -51,15 +54,16 @@ export const gitDiscard: Rule = {
       if (!d) continue;
       const status = g.dir === null ? null : ctx.gitStatus(g.dir);
       const label = d.loses === "untracked" ? "untracked files" : "uncommitted changes";
+      const suggestion = d.loses === "untracked" ? CLEAN : STASH;
       if (status?.[d.loses]) {
-        out.push({ ruleId: ID, category: "destructive", severity: "high", reason: `${d.what} would discard ${label} in this work tree.` });
+        out.push({ ruleId: ID, category: "destructive", severity: "high", reason: `${d.what} would discard ${label} in this work tree.`, suggestion });
       } else {
         const why = status === null ? `; couldn't check for ${label}` : "";
-        out.push({ ruleId: ID, category: "destructive", severity: "medium", reason: `${d.what} discards ${label}${why}.` });
+        out.push({ ruleId: ID, category: "destructive", severity: "medium", reason: `${d.what} discards ${label}${why}.`, suggestion });
       }
     }
     for (const c of unparsedNestedMatching(ctx, NESTED)) {
-      out.push({ ruleId: ID, category: "destructive", severity: "medium", reason: `A nested script that couldn't be parsed looks like it discards git work (${c.nestedReason ?? "unparsed"}).` });
+      out.push({ ruleId: ID, category: "destructive", severity: "medium", reason: `A nested script that couldn't be parsed looks like it discards git work (${c.nestedReason ?? "unparsed"}).`, suggestion: STASH });
     }
     return out;
   },

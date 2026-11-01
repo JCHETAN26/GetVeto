@@ -116,3 +116,25 @@ describe("parse prefilter (triggers)", () => {
     }
   });
 });
+
+describe("suggestions", () => {
+  it("every medium or high finding offers a safer alternative", async () => {
+    const cmds = [
+      "rm -rf ~/Downloads", "rm -rf src", "rm -rf $X", "git reset --hard", "git checkout .", "git clean -fdx",
+      "git push -f origin main", "git push -f origin feature/x", "git push --mirror backup", "find ~ -delete",
+      "chmod -R 777 ~", "dd if=a.iso of=/dev/sdb", "mkfs.ext4 /dev/sdb1", "rm ~/notes.txt", "mv ~/a.txt ./src/",
+    ];
+    const tools: [string, Record<string, unknown>][] = [["Write", { file_path: "/etc/hosts" }], ["Read", { file_path: `${root}/.env` }]];
+    const events = [...cmds.map(bash), ...tools.map(([tool_name, tool_input]) => ({ hook_event_name: "PreToolUse", tool_name, tool_input, cwd: root }))];
+    let checked = 0;
+    for (const ev of events) {
+      const v = await evaluate(ev, { projectRoot: root, home: "/home/alice" });
+      expect(v.verdict, JSON.stringify(ev.tool_input)).toBe("flag");
+      for (const f of v.findings.filter((x) => x.severity !== "low")) {
+        expect(f.suggestion, `${f.ruleId}: ${f.reason}`).toMatch(/^[A-Z].*\.$/);
+        checked++;
+      }
+    }
+    expect(checked).toBeGreaterThanOrEqual(events.length);
+  });
+});

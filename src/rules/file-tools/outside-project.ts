@@ -21,7 +21,13 @@ export const outsideProject: Rule = {
     if (!path) return [];
     const cls = classifyPath(path, ctx.cwd, ctx.projectRoot, ctx.home);
     const f = (severity: Finding["severity"], where: string): Finding[] => [
-      { ruleId: ID, category: "file-tools", severity, reason: `${ctx.toolName} to ${where}: ${path}.` },
+      {
+        ruleId: ID,
+        category: "file-tools",
+        severity,
+        reason: `${ctx.toolName} to ${where}: ${path}.`,
+        suggestion: "Keep changes inside the project, or confirm this path with the user first.",
+      },
     ];
     switch (cls) {
       case "inside-project":
