@@ -2,7 +2,7 @@
 // (see docs/decisions.md). No top-level side effects, so callers can load it lazily with
 // `await import("./shell/parse.js")`. Never throws.
 import { forEachChild, parse } from "unbash";
-import type { Command, Redirection, SyntaxNode, Word, WordPart } from "unbash";
+import type { Command, PipelineNode, Redirection, Statement, SyntaxNode, Word, WordPart } from "unbash";
 import { homedir } from "node:os";
 import { isAbsolute, resolve } from "node:path";
 
@@ -81,6 +81,15 @@ export interface SimpleCommand {
   unparsedNested: boolean;
   /** Why the nested script wasn't parsed, when unparsedNested. */
   nestedReason?: string;
+  /**
+   * Indices (into the same result list) of earlier commands that have certainly run, in this
+   * shell, by the time this one starts: earlier steps of an `a && b && c` list (each one
+   * succeeded) and the first step of each earlier statement separated by `;` or a newline
+   * (it ran, maybe unsuccessfully). Only plain commands count as steps, never across `||`, a
+   * pipeline, a negation (`!`), a background job, or into or out of an if/loop body or a
+   * subshell. Rules use it for patterns like `git stash && git reset --hard`.
+   */
+  ranBefore: number[];
   /** Source text of this command. */
   text: string;
 }
@@ -187,6 +196,13 @@ function walk(node: SyntaxNode, ctx: Ctx, st: State, src: string, out: SimpleCom
       for (const c of node.commands) walk(c, { ...ctx, timed, inPipeline }, inPipeline ? cloneState(st) : st, src, out);
       return;
     }
+    case "Script":
+    case "CompoundList": {
+      // Statements run in order; track which commands have certainly run (see ranBefore).
+      let ran: number[] = [];
+      for (const s of node.commands) ran = statement(s, ctx, st, src, out, ran);
+      return;
+    }
     case "Statement":
       // `cmd &` runs in the background, in a subshell.
       walk(node.command, ctx, node.background ? cloneState(st) : st, src, out);
@@ -233,6 +249,47 @@ function walk(node: SyntaxNode, ctx: Ctx, st: State, src: string, out: SimpleCom
     }
   }
   forEachChild(node, (ch) => walk(ch, ctx, st, src, out));
+}
+
+/**
+ * One statement of a list. `ran` = commands certain to have run before it. Returns the same
+ * for the next statement: `ran` plus this statement's first step (later steps of an and-or
+ * list may be skipped).
+ */
+function statement(s: Statement, ctx: Ctx, st: State, src: string, out: SimpleCommand[], ran: number[]): number[] {
+  if (s.background) {
+    walk(s, ctx, st, src, out);
+    return ran;
+  }
+  const node = s.command;
+  if (node.type !== "AndOr") {
+    const i = step(node, ctx, st, src, out, ran);
+    return i === null ? ran : [...ran, i];
+  }
+  const chain = [...ran];
+  let allAnd = true;
+  let first: number | null = null;
+  node.commands.forEach((p, k) => {
+    // After a `||` a step may run precisely because an earlier one failed: link nothing new.
+    const before = allAnd ? chain : ran;
+    const i = step(p, ctx, st, src, out, before);
+    if (k === 0) first = i;
+    if (i !== null && allAnd) chain.push(i);
+    if (node.operators[k] !== undefined && node.operators[k] !== "&&") allAnd = false;
+  });
+  return first === null ? ran : [...ran, first];
+}
+
+/** Walk one step of an and-or list; returns its index in `out` when it is a plain command. */
+function step(p: PipelineNode, ctx: Ctx, st: State, src: string, out: SimpleCommand[], before: number[]): number | null {
+  const start = out.length;
+  walk(p, ctx, st, src, out);
+  const plain =
+    p.type === "Command" ||
+    (p.type === "Pipeline" && p.commands.length === 1 && p.commands[0]!.type === "Command" && !p.prefixes.some((x) => x.type === "Negation"));
+  if (!plain || out.length === start) return null;
+  out[start]!.ranBefore = [...before];
+  return start;
 }
 
 function known(name: string, st: State): string | null {
@@ -388,6 +445,7 @@ function simple(node: Command, ctx: Ctx, st: State, src: string): SimpleCommand 
     nested: ctx.depth > 0,
     depth: ctx.depth,
     unparsedNested: false,
+    ranBefore: [],
     text: src.slice(node.pos, node.end),
   };
 }

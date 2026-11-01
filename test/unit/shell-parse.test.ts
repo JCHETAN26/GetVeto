@@ -444,3 +444,43 @@ describe("nested shells: bash/sh/zsh/dash -c and eval", () => {
     expect(c[0]!.nestedReason).toMatch(/nested parse error/);
   });
 });
+
+describe("ranBefore: commands certain to have run earlier in the same shell", () => {
+  /** "program[i,j]" per command, with the programs of the indices it lists. */
+  const chain = (command: string) => {
+    const c = cmds(command);
+    return c.map((x) => `${x.program}[${x.ranBefore.map((i) => c[i]!.program).join(",")}]`).join(" ");
+  };
+
+  it("&& links every earlier step; ; links the first step of each earlier statement", () => {
+    expect(chain("a && b && c")).toBe("a[] b[a] c[a,b]");
+    expect(chain("a; b; c")).toBe("a[] b[a] c[a,b]");
+    expect(chain("a\nb")).toBe("a[] b[a]");
+    expect(chain("a && b; c && d")).toBe("a[] b[a] c[a] d[a,c]");
+  });
+
+  it("nothing is linked across || (the next step may run because an earlier one failed)", () => {
+    expect(chain("a || b")).toBe("a[] b[]");
+    expect(chain("a || b && c")).toBe("a[] b[] c[]");
+    expect(chain("a && b || c && d; e")).toBe("a[] b[a] c[] d[] e[a]");
+  });
+
+  it("pipelines, negation, background jobs, subshells and substitutions are not steps", () => {
+    expect(chain("a | x && b")).toBe("a[] x[] b[]");
+    expect(chain("! a && b")).toBe("a[] b[]");
+    expect(chain("a & b")).toBe("a[] b[]");
+    expect(chain("(a) && b")).toBe("a[] b[]");
+    expect(chain("echo $(a) && b")).toBe("echo[] a[] b[echo]");
+  });
+
+  it("an if/loop body starts fresh; a bash -c script is linked within itself", () => {
+    expect(chain("a; if t; then b && c; fi")).toBe("a[] t[] b[] c[b]");
+    expect(chain(`a && bash -c "b && c"`)).toBe("a[] bash[a] b[] c[b]");
+  });
+
+  it("the real guard-mode event: git stash push ... && git reset --hard", () => {
+    const c = cmds(`git stash push -m "discarded: pre-reset changes" && git reset --hard HEAD~1 && git log --oneline -2 && git status --short`);
+    expect(c.map((x) => x.args[0])).toEqual(["stash", "reset", "log", "status"]);
+    expect(c[1]!.ranBefore).toEqual([0]);
+  });
+});
