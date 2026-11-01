@@ -11,6 +11,7 @@ Veto is a local safety layer for AI coding agents (starting with Claude Code). n
 3. Fail open: Veto must never break or hang the user's agent. Any internal error → allow the action and log the error.
 4. Every task ends with a manual demo that the founder runs on their machine with real Claude Code.
 5. Small, logical git commits with clear messages.
+6. Run the full test suite before every commit.
 
 ## Project facts worth knowing
 - Hook API research lives in `docs/hooks-research.md`. Read it before touching hook I/O.
