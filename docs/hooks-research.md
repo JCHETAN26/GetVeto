@@ -286,6 +286,68 @@ for this event is 30 s; Veto sets 10 s.
    effect here**. Tests that check permissions must run in an OS temp dir (`/tmp`, ext4), and the demo sandbox should
    live under `$HOME` (ext4), not `../veto-sandbox` on the exFAT drive.
 
+## 7. Guard mode: deny and ask (Task #4, 2026-10-31)
+
+Re-read from the official docs on 2026-10-31: hooks reference "PreToolUse decision control" and "PreToolUse `ask`
+decisions in auto mode"; permissions "Extend permissions with hooks"; permission modes "auto", "dontAsk",
+"bypassPermissions". Quotes are verbatim.
+
+### Output shape (exit 0, one JSON object on stdout)
+```json
+{ "hookSpecificOutput": { "hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": "Veto: ..." } }
+```
+The same shape with `"ask"`. The top-level `decision`/`reason` fields are deprecated for PreToolUse.
+
+### deny
+- *"`"deny"` prevents the tool call."* *"For `"deny"`, [the reason is] shown to Claude."* Lifecycle: *"Claude Code reads
+  the JSON decision, blocks the tool call, and shows Claude the reason."*
+- *"A hook that blocks by exiting 2 routes the same way as `"deny"`"*. Veto uses JSON so the exit code stays 0, and
+  a broken JSON write can't turn into a block (fail open).
+- The docs list **no permission mode that ignores a hook deny**. The permissions page says *"The hook output can deny
+  the tool call, force a prompt, or skip the prompt"*, and deny is first in precedence (*"`deny` > `defer` > `ask` >
+  `allow`"* when hooks disagree). **UNCLEAR:** a mod can approve a call a PreToolUse hook blocked, in setups
+  without managed settings or a Team/Enterprise login (*"the mod can approve a call that a deny rule refuses or a
+  `PreToolUse` hook blocked"*). Veto can't prevent that. It only matters if the user installs such a mod.
+
+### ask
+- *"`"ask"` prompts the user to confirm."* *"For `"ask"`, [the reason is] shown to the user in the permission
+  prompt."* The prompt is labelled `[settings]` for a settings-file hook. **Claude does not see an ask reason** in an
+  interactive session, so Veto also sends the reason as `additionalContext` (*"String added to Claude's context
+  alongside the tool result"*). Then Claude knows why it was asked, whatever the user picks.
+- In `-p` runs: *"When Claude Code denies the call in a `-p` run where no one can answer that prompt, Claude reads the
+  reason in the tool result instead."*
+- Settings rules still apply: *"a matching deny rule blocks the call, and a matching ask rule still prompts even
+  when the hook returned `"allow"` or `"ask"`."*
+
+### Does "ask" force a human prompt in auto mode? **Yes (documented), with one carve-out.**
+- *"In auto mode, a PreToolUse hook's `"ask"` normally sends the tool call to the permission prompt, and the classifier
+  doesn't decide it."* Also, from permission modes: *"... prompts forced by one of your `ask` rules or by a hook ...
+  auto mode still shows you those prompts"*.
+- Carve-out: *"Calls that Claude Code's own checks flag too: these include writes to protected paths and commands that
+  ask to run outside the sandbox. The classifier can deny one of these calls before any prompt appears. If it
+  approves, the call normally still goes to the prompt."* So the worst case here is a denial, never a silent run.
+- `SubagentHandback` never prompts; only `"deny"` stops it. (Veto has no rules for it.)
+- To verify live: Task #4 manual plan, prompt 3, run with auto mode ON.
+
+### bypassPermissions mode: **UNCLEAR**
+- The mode *"disables permission prompts and safety checks so tool calls execute immediately"*. The section lists what
+  still prompts (*"actions no mode auto-approves"*, *"Explicit ask rules and recognized `rm` and `rmdir` critical-path
+  removals still prompt"*), and **a PreToolUse hook's `"ask"` is not in that list**.
+- Indirect hint that it does prompt: in the troubleshooting list for removals that keep prompting in bypass mode,
+  *"A `PreToolUse` hook answers `ask` for a removal: change what the hook returns"*.
+- Deny in bypass mode: nothing in the docs says it's skipped (see "deny" above). Not yet verified live.
+- Implication: if "ask" turns out to be skipped in bypass mode, a medium finding would run unprompted there. An
+  option for later (not built): when `permission_mode` is `bypassPermissions`, escalate "ask" to "deny".
+
+### dontAsk mode: ask becomes a denial (**inferred**)
+- *"Claude Code auto-denies every tool call that would otherwise prompt you"* and *"denies calls matching your explicit
+  `ask` rules rather than prompting."* The docs don't name hook asks explicitly, but a hook "ask" is a prompt, so it
+  should be denied. **UNCLEAR** until checked live.
+
+### Never "allow"
+Unchanged and re-confirmed: *"`"allow"` skips the permission prompt"*. Guard mode outputs only "deny" or "ask".
+Everything else (watch mode, no findings, only "log" findings, any error) is exit 0 with empty stdout.
+
 ## Sources
 - Hooks reference: https://code.claude.com/docs/en/hooks (also served as markdown at https://code.claude.com/docs/en/hooks.md)
   - Sections used: Hook lifecycle, Configuration, Hook locations, Matcher patterns, Hook handler fields, Command hook fields,
@@ -294,3 +356,7 @@ for this event is 30 s; Veto sets 10 s.
     hooks, Workspace trust, Debug hooks
 - Settings files and precedence: https://code.claude.com/docs/en/settings
 - Permissions / workspace trust (linked from the hooks page): https://code.claude.com/docs/en/permissions#project-allow-rules-and-workspace-trust
+- Section 7 (guard mode): https://code.claude.com/docs/en/hooks.md (PreToolUse decision control; PreToolUse `ask`
+  decisions in auto mode), https://code.claude.com/docs/en/permissions.md (Extend permissions with hooks; Precedence
+  among rules, hooks, and mods), https://code.claude.com/docs/en/permission-modes.md (auto, dontAsk,
+  bypassPermissions; Why the critical-path removal prompt stays on). Fetched 2026-10-31.
