@@ -16,6 +16,7 @@ import {
   type HookCommandSpec,
   type VetoCliPredicate,
 } from "./settings.js";
+import { configPath, defaultConfig, loadConfig, saveConfig } from "./config.js";
 import { ensureVetoDir, writePrivate } from "./storage.js";
 
 export const LOCAL_SETTINGS = join(".claude", "settings.local.json");
@@ -123,6 +124,8 @@ function describe(h: CommandHandler): string {
 
 export interface InitOptions {
   shared: boolean;
+  /** Set guard mode in .veto/config.json (default: watch for a new config, unchanged otherwise). */
+  guard?: boolean;
 }
 
 export function init(root: string, opts: InitOptions, out: Out): number {
@@ -174,6 +177,27 @@ export function init(root: string, opts: InitOptions, out: Out): number {
     changes++;
   }
 
+  // 2b. .veto/config.json: create with defaults; --guard switches an existing valid one to guard.
+  let exitCode = 0;
+  const cfgPath = configPath(root);
+  const loaded = loadConfig(root);
+  if (loaded.source === "default") {
+    saveConfig(root, { ...defaultConfig(), mode: opts.guard ? "guard" : "watch" });
+    out(`created:   ${cfgPath} (mode: ${opts.guard ? "guard" : "watch"})`);
+    changes++;
+  } else if (loaded.source === "invalid") {
+    out(`warning:   ${loaded.error}`);
+    out(`           Veto runs in watch mode until it's fixed (or deleted, then re-run \`veto init\`).`);
+    if (opts.guard) exitCode = 1;
+  } else if (opts.guard && loaded.config.mode !== "guard") {
+    saveConfig(root, { ...loaded.config, mode: "guard" });
+    out(`modified:  ${cfgPath} (mode: watch -> guard)`);
+    changes++;
+  } else {
+    out(`unchanged: ${cfgPath} (mode: ${loaded.config.mode})`);
+  }
+  const mode = loadConfig(root).config.mode;
+
   // 3. .gitignore
   const giPath = join(root, ".gitignore");
   const giText = existsSync(giPath) ? readFileSync(giPath, "utf8") : null;
@@ -195,9 +219,13 @@ export function init(root: string, opts: InitOptions, out: Out): number {
         `"hook error" notice on each tool call (non-blocking).`,
     );
   }
-  out(changes === 0 ? "Veto is already installed. Nothing changed." : "Veto installed (observe-only: nothing is blocked).");
+  const modeLine =
+    mode === "guard"
+      ? "guard mode: high-severity calls are denied, medium ones ask you first"
+      : "watch mode: calls are flagged in the log, nothing is blocked; `veto mode guard` to enforce";
+  out(changes === 0 ? `Veto is already installed (${modeLine}). Nothing changed.` : `Veto installed (${modeLine}).`);
   out("Restart Claude Code in this folder (or keep it running; it reloads settings) and accept the trust prompt.");
-  return 0;
+  return exitCode;
 }
 
 export function uninstall(root: string, out: Out): number {

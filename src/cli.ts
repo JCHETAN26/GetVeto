@@ -4,12 +4,18 @@
 const argv = process.argv.slice(2);
 const cmd = argv[0];
 
-const USAGE = `veto: your agent proposes. You veto.  (watch-mode preview: flags, never blocks)
+const USAGE = `veto: your agent proposes. You veto.  (preview)
 
 Usage:
-  veto init [--shared]   Install Veto's hook in this project's Claude Code settings.
+  veto init [--shared] [--guard]
+                         Install Veto's hook in this project's Claude Code settings.
                          Default: .claude/settings.local.json (personal, gitignored).
                          --shared: .claude/settings.json (committed, applies to your team).
+                         --guard: start in guard mode (default: watch mode).
+  veto mode [watch|guard]
+                         Show or set the mode. watch: flag in the log, never block.
+                         guard: deny high-severity calls, ask you about medium ones.
+  veto status            Mode, where the hook is installed, config path, last 5 flags.
   veto log [-n N] [--flagged] [--file <log.jsonl>]
                          Show the last N logged tool calls (default 20). Flagged calls
                          end with ⚑ severity: reason (guard mode: ⛔ denied / ? asked).
@@ -20,7 +26,7 @@ Usage:
                          <veto-repo>/test/fixtures/redteam/. Resumable; never double-labels.
   veto uninstall         Remove Veto's hook from .claude/settings.local.json and/or .claude/settings.json.
   veto hook              (Called by Claude Code.) Read a hook event on stdin, check it against
-                         the rules (watch mode: record a verdict, never block) and log it.
+                         the rules, log it, and in guard mode deny or ask.
   veto --version
 `;
 
@@ -32,10 +38,23 @@ async function main(): Promise<number> {
       return -1;
     }
     case "init": {
-      const unknown = argv.slice(1).filter((a) => a !== "--shared");
+      const unknown = argv.slice(1).filter((a) => a !== "--shared" && a !== "--guard");
       if (unknown.length) return usageError(`unknown option(s) for init: ${unknown.join(" ")}`);
       const { init } = await import("./install.js");
-      return init(process.cwd(), { shared: argv.includes("--shared") }, console.log);
+      return init(process.cwd(), { shared: argv.includes("--shared"), guard: argv.includes("--guard") }, console.log);
+    }
+    case "mode": {
+      const rest = argv.slice(1);
+      if (rest.length > 1 || (rest[0] !== undefined && rest[0] !== "watch" && rest[0] !== "guard")) {
+        return usageError("usage: veto mode [watch|guard]");
+      }
+      const { showMode, setMode } = await import("./status.js");
+      return rest[0] ? setMode(process.cwd(), rest[0], console.log, (m: string) => process.stderr.write(`veto: ${m}\n`)) : showMode(process.cwd(), console.log);
+    }
+    case "status": {
+      if (argv.length > 1) return usageError("status takes no options");
+      const { showStatus } = await import("./status.js");
+      return showStatus(process.cwd(), console.log);
     }
     case "uninstall": {
       if (argv.length > 1) return usageError(`uninstall takes no options`);
