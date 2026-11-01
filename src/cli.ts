@@ -4,18 +4,21 @@
 const argv = process.argv.slice(2);
 const cmd = argv[0];
 
-const USAGE = `veto: your agent proposes. You veto.  (observe-only preview)
+const USAGE = `veto: your agent proposes. You veto.  (watch-mode preview: flags, never blocks)
 
 Usage:
   veto init [--shared]   Install Veto's hook in this project's Claude Code settings.
                          Default: .claude/settings.local.json (personal, gitignored).
                          --shared: .claude/settings.json (committed, applies to your team).
-  veto log [-n N]        Show the last N logged tool calls (default 20).
+  veto log [-n N] [--flagged]
+                         Show the last N logged tool calls (default 20). Flagged calls
+                         end with ⚑ severity: reason. --flagged shows only those.
   veto label [--from <project-dir>] [--to <veto-repo-dir>]
                          Label logged PreToolUse calls (allow/flag + category) into
                          <veto-repo>/test/fixtures/redteam/. Resumable; never double-labels.
   veto uninstall         Remove Veto's hook from .claude/settings.local.json and/or .claude/settings.json.
-  veto hook              (Called by Claude Code.) Read a hook event on stdin and log it.
+  veto hook              (Called by Claude Code.) Read a hook event on stdin, check it against
+                         the rules (watch mode: record a verdict, never block) and log it.
   veto --version
 `;
 
@@ -43,6 +46,7 @@ async function main(): Promise<number> {
     }
     case "log": {
       let n = 20;
+      let flagged = false;
       const rest = argv.slice(1);
       for (let i = 0; i < rest.length; i++) {
         const a = rest[i];
@@ -50,10 +54,11 @@ async function main(): Promise<number> {
           const v = Number(rest[++i]);
           if (!Number.isInteger(v) || v <= 0) return usageError("-n expects a positive integer");
           n = v;
-        } else return usageError(`unknown option for log: ${a}`);
+        } else if (a === "--flagged") flagged = true;
+        else return usageError(`unknown option for log: ${a}`);
       }
       const { showLog } = await import("./logview.js");
-      return showLog(process.cwd(), n, console.log);
+      return showLog(process.cwd(), n, console.log, { flagged });
     }
     case "--version":
     case "-v": {

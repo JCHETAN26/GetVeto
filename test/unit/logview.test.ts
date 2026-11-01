@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatEntry, parseLog, summarizeInput } from "../../src/logview.js";
+import { formatEntry, parseLog, summarizeInput, verdictSuffix } from "../../src/logview.js";
 
 describe("summarizeInput", () => {
   it.each([
@@ -58,5 +58,19 @@ describe("UserPromptSubmit lines", () => {
       event: { hook_event_name: "UserPromptSubmit", prompt: "fix the bug\nin ISSUE-42", prompt_id: "p1" },
     });
     expect(line).toMatch(/  user  prompt      fix the bug in ISSUE-42$/);
+  });
+});
+
+describe("verdict markers (watch mode)", () => {
+  const base = { ts: "2026-01-02T03:04:05.000Z", event: { hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: "git push -f origin main" } } };
+  it("flag: ⚑ + most severe finding + count of the rest", () => {
+    const e = { ...base, verdict: "flag", findings: [{ severity: "high", reason: "Force push to main rewrites shared history." }, { severity: "low", reason: "x." }] };
+    expect(verdictSuffix(e)).toBe("  ⚑ high: Force push to main rewrites shared history. (+1 more)");
+    expect(formatEntry(e)).toMatch(/git push -f origin main  ⚑ high: /);
+  });
+  it("allow and old entries without a verdict: no marker; error: ⚠", () => {
+    expect(verdictSuffix({ ...base, verdict: "allow", findings: [] })).toBe("");
+    expect(verdictSuffix(base)).toBe("");
+    expect(verdictSuffix({ ...base, verdict: "error", error: "boom" })).toBe("  ⚠ analysis error: boom");
   });
 });

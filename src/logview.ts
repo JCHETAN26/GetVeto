@@ -1,11 +1,20 @@
-// `veto log [-n N]`: readable timeline of .veto/log.jsonl.
+// `veto log [-n N] [--flagged]`: readable timeline of .veto/log.jsonl.
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { LOG_FILE, VETO_DIR } from "./storage.js";
 
+export interface LogFinding {
+  severity: string;
+  reason: string;
+}
+
 export interface LogEntry {
   ts: string;
   event: Record<string, unknown>;
+  /** Watch mode (PreToolUse only): "allow" | "flag" | "error". */
+  verdict?: string;
+  findings?: LogFinding[];
+  error?: string;
 }
 
 const MAX_SUMMARY = 100;
@@ -82,8 +91,21 @@ export function formatEntry(entry: LogEntry): string {
   if (eventName === "PostToolUseFailure" && typeof ev.error === "string") {
     summary += `  [error: ${oneLine(ev.error.split("\n")[0] ?? "", 60)}]`;
   }
-  return `${formatTime(entry.ts)}  ${label}  ${tool.padEnd(10)}  ${summary}`;
+  return `${formatTime(entry.ts)}  ${label}  ${tool.padEnd(10)}  ${summary}${verdictSuffix(entry)}`;
 }
+
+/** "  ⚑ high: reason" for flagged lines (most severe finding first; the engine sorts them). */
+export function verdictSuffix(entry: LogEntry): string {
+  if (entry.verdict === "flag" && Array.isArray(entry.findings) && entry.findings.length > 0) {
+    const [top, ...rest] = entry.findings;
+    const more = rest.length > 0 ? ` (+${rest.length} more)` : "";
+    return `  ⚑ ${top!.severity}: ${top!.reason}${more}`;
+  }
+  if (entry.verdict === "error") return `  ⚠ analysis error: ${oneLine(entry.error ?? "", 60)}`;
+  return "";
+}
+
+export const isFlagged = (e: LogEntry) => e.verdict === "flag";
 
 export interface ParsedLog {
   entries: LogEntry[];
@@ -107,16 +129,18 @@ export function parseLog(text: string): ParsedLog {
   return { entries, malformed };
 }
 
-export function showLog(root: string, n: number, out: (s: string) => void): number {
+export function showLog(root: string, n: number, out: (s: string) => void, opts: { flagged?: boolean } = {}): number {
   const path = join(root, VETO_DIR, LOG_FILE);
   if (!existsSync(path)) {
     out(`No log yet at ${path}. Run \`veto init\` here, then use Claude Code in this folder.`);
     return 0;
   }
   const { entries, malformed } = parseLog(readFileSync(path, "utf8"));
-  const shown = entries.slice(-n);
-  if (shown.length === 0) out("(log is empty)");
+  const pool = opts.flagged ? entries.filter(isFlagged) : entries;
+  const shown = pool.slice(-n);
+  if (shown.length === 0) out(opts.flagged ? "(no flagged entries)" : "(log is empty)");
   for (const e of shown) out(formatEntry(e));
-  out(`-- ${shown.length} of ${entries.length} entries from ${path}${malformed ? ` (${malformed} malformed lines skipped)` : ""}`);
+  const of = opts.flagged ? `${pool.length} flagged (${entries.length} total)` : `${entries.length}`;
+  out(`-- ${shown.length} of ${of} entries from ${path}${malformed ? ` (${malformed} malformed lines skipped)` : ""}`);
   return 0;
 }

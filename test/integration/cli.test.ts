@@ -255,4 +255,27 @@ describe("veto log", () => {
   it("bad -n: exit 1", async () => {
     expect((await runCli(["log", "-n", "zero"], { cwd: tempProject() })).code).toBe(1);
   });
+
+  it("marks flagged calls with ⚑ severity: reason; --flagged shows only those", async () => {
+    // Real captured Bash payloads; one has its command value replaced (shape unchanged).
+    const root = tempProject();
+    const bash = loadFixtures().filter((f) => f.event.hook_event_name === "PreToolUse" && f.event.tool_name === "Bash");
+    const place = (raw: string) => raw.replaceAll("/REDACTED_PROJECT", root);
+    for (const f of bash) await runCli(["hook"], { cwd: root, stdin: place(f.raw), env: { CLAUDE_PROJECT_DIR: root } });
+    const flagged = JSON.parse(place(bash[0]!.raw)) as { tool_input: Record<string, unknown> };
+    flagged.tool_input.command = "rm -rf ~/Downloads";
+    await runCli(["hook"], { cwd: root, stdin: JSON.stringify(flagged), env: { CLAUDE_PROJECT_DIR: root } });
+
+    const all = (await runCli(["log", "-n", "50"], { cwd: root })).stdout.trim().split("\n");
+    expect(all).toHaveLength(bash.length + 2);
+    expect(all.filter((l) => l.includes("⚑"))).toHaveLength(1);
+    expect(all.at(-2)).toContain("rm -rf ~/Downloads  ⚑ high: Recursive delete of your home directory (~/Downloads).");
+
+    const only = await runCli(["log", "--flagged"], { cwd: root });
+    expect(only.code).toBe(0);
+    const lines = only.stdout.trim().split("\n");
+    expect(lines).toHaveLength(2);
+    expect(lines[0]).toContain("⚑ high:");
+    expect(lines[1]).toMatch(new RegExp(`^-- 1 of 1 flagged \\(${bash.length + 1} total\\) entries`));
+  });
 });
