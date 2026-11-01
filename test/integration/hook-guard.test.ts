@@ -104,7 +104,8 @@ describe("veto hook in guard mode (real fixtures)", () => {
     expect(out.permissionDecision).toBe("deny");
     expect(out.permissionDecisionReason).toBe(
       "Veto: blocked this call. [destructive/git-discard] git reset --hard would discard uncommitted changes in this work tree. " +
-        "Safer: Run `git stash` first so the changes can be restored, or ask the user before discarding them.",
+        "Safer: Run `git stash` first so the changes can be restored, or ask the user before discarding them. " +
+        "If the user wants this exact call to go ahead, they can run `veto allow --once` in their own terminal (not through you), then ask you to retry.",
     );
     expect(out).not.toHaveProperty("additionalContext");
     expect(line).toMatchObject({ mode: "guard", decision: "denied" });

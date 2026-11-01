@@ -22,14 +22,20 @@ const MAX_LISTED = 5;
 /** Docs cap additionalContext at 10,000 chars; stay well under for the reason too. */
 const MAX_REASON = 2000;
 
+/** Ends every deny reason, so Claude can tell the user how to let a call through on purpose. */
+export const OVERRIDE_HINT = "If the user wants this exact call to go ahead, they can run `veto allow --once` in their own terminal (not through you), then ask you to retry.";
+
 /** "Veto: ..." text naming each rule, its specific target, and the safer alternatives. */
 export function formatReason(action: "deny" | "ask", findings: Finding[]): string {
   const head = action === "deny" ? "Veto: blocked this call." : "Veto: asking the user to confirm this call.";
   const listed = findings.slice(0, MAX_LISTED).map((f) => `[${f.ruleId}] ${f.reason}`);
   if (findings.length > MAX_LISTED) listed.push(`(+${findings.length - MAX_LISTED} more)`);
   const tips = [...new Set(findings.map((f) => f.suggestion).filter((s): s is string => !!s))];
-  const text = [head, ...listed, ...(tips.length ? [`Safer: ${tips.join(" ")}`] : [])].join(" ");
-  return text.length > MAX_REASON ? text.slice(0, MAX_REASON - 1) + "…" : text;
+  // An ask already puts the user in charge (the prompt); only a deny needs the override hint.
+  const tail = action === "deny" ? ` ${OVERRIDE_HINT}` : "";
+  const body = [head, ...listed, ...(tips.length ? [`Safer: ${tips.join(" ")}`] : [])].join(" ");
+  const room = MAX_REASON - tail.length;
+  return (body.length > room ? body.slice(0, room - 1) + "…" : body) + tail;
 }
 
 export function decide(verdict: Verdict, config: VetoConfig): GuardResult {

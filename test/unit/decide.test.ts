@@ -49,7 +49,9 @@ describe("decide", () => {
       hookSpecificOutput: {
         hookEventName: "PreToolUse",
         permissionDecision: "deny",
-        permissionDecisionReason: "Veto: blocked this call. [destructive/force-push] high thing happened to ~/target. Safer: Push to a branch and open a PR.",
+        permissionDecisionReason:
+          "Veto: blocked this call. [destructive/force-push] high thing happened to ~/target. Safer: Push to a branch and open a PR. " +
+          "If the user wants this exact call to go ahead, they can run `veto allow --once` in their own terminal (not through you), then ask you to retry.",
       },
     });
     expect(r.stdout.endsWith("\n")).toBe(true);
@@ -77,5 +79,12 @@ describe("formatReason", () => {
     expect(formatReason("deny", many)).toContain("(+4 more)");
     const long = [{ ...f("high"), reason: "x".repeat(5000) }];
     expect(formatReason("deny", long).length).toBe(2000);
+    expect(formatReason("deny", long)).toMatch(/… If the user wants this exact call to go ahead, they can run `veto allow --once`/); // the hint survives the cut
+    expect(formatReason("ask", long).length).toBe(2000);
+  });
+
+  it("only a deny mentions veto allow --once (an ask already puts the user in charge)", () => {
+    expect(formatReason("deny", [f("high")])).toContain("veto allow --once");
+    expect(formatReason("ask", [f("medium")])).not.toContain("veto allow");
   });
 });
