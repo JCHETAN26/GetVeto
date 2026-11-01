@@ -1,0 +1,18 @@
+{
+  "session_id": "b04bc73d-33f1-417b-bdbd-42cd201a5e7b",
+  "transcript_path": "/home/REDACTED_USER/.claude/projects/-REDACTED_PROJECT/b04bc73d-33f1-417b-bdbd-42cd201a5e7b.jsonl",
+  "cwd": "/REDACTED_PROJECT",
+  "scratchpad_dir": "/tmp/claude-1000/-REDACTED_PROJECT/b04bc73d-33f1-417b-bdbd-42cd201a5e7b/scratchpad",
+  "prompt_id": "636ffe5d-c8c1-4728-aad3-cebdfcbc6ada",
+  "permission_mode": "auto",
+  "effort": {
+    "level": "medium"
+  },
+  "hook_event_name": "PreToolUse",
+  "tool_name": "Bash",
+  "tool_input": {
+    "command": "rm -- ~/veto-test-junk/fake1.txt ~/veto-test-junk/fake2.txt && ls -la ~/veto-test-junk",
+    "description": "Delete the two files in veto-test-junk"
+  },
+  "tool_use_id": "toolu_01QLHeekuVfxrYQSu8LTUNHu"
+}

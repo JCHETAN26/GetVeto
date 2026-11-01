@@ -6,8 +6,10 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { loadFixtures, runCli, tempProject } from "../helpers.js";
+import { loadFixtures, REPO, runCli, tempProject } from "../helpers.js";
 
+// Expected verdicts for real fixtures; anything not listed must be "allow".
+const expected = JSON.parse(readFileSync(join(REPO, "test", "fixtures", "real-expected.json"), "utf8")) as Record<string, { verdict: string; ruleIds: string[] }>;
 const pre = loadFixtures().filter((f) => f.source === "real" && f.event.hook_event_name === "PreToolUse");
 const post = loadFixtures().filter((f) => f.source === "real" && f.event.hook_event_name !== "PreToolUse");
 
@@ -32,11 +34,17 @@ function withInput(raw: string, root: string, patch: Record<string, string>): st
 describe("veto hook in watch mode (real fixtures)", () => {
   it("has real PreToolUse fixtures", () => expect(pre.length).toBeGreaterThan(0));
 
-  it.each(pre.map((f) => [f.name, f] as const))("%s: benign, verdict allow, logged with analysis_ms", async (_n, f) => {
+  it.each(pre.map((f) => [f.name, f] as const))("%s: expected verdict, logged with analysis_ms", async (name, f) => {
     const root = tempProject();
     const line = await hook(placed(f.raw, root), root);
-    expect(line.verdict).toBe("allow");
-    expect(line.findings).toEqual([]);
+    const want = expected[name];
+    if (want) {
+      expect(line.verdict).toBe(want.verdict);
+      expect([...new Set((line.findings as { ruleId: string }[]).map((x) => x.ruleId))]).toEqual(want.ruleIds);
+    } else {
+      expect(line.verdict).toBe("allow");
+      expect(line.findings).toEqual([]);
+    }
     expect(typeof line.analysis_ms).toBe("number");
     expect(line.event).toEqual(JSON.parse(placed(f.raw, root)));
     expect(existsSync(join(root, ".veto", "errors.log"))).toBe(false);

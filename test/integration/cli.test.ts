@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSy
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { spawnSync } from "node:child_process";
-import { CLI, loadFixtures, runCli, tempProject } from "../helpers.js";
+import { CLI, loadFixtures, REPO, runCli, tempProject } from "../helpers.js";
 
 const LOCAL = join(".claude", "settings.local.json");
 const SHARED = join(".claude", "settings.json");
@@ -259,7 +259,8 @@ describe("veto log", () => {
   it("marks flagged calls with ⚑ severity: reason; --flagged shows only those", async () => {
     // Real captured Bash payloads; one has its command value replaced (shape unchanged).
     const root = tempProject();
-    const bash = loadFixtures().filter((f) => f.event.hook_event_name === "PreToolUse" && f.event.tool_name === "Bash");
+    const expectedFlags = JSON.parse(readFileSync(join(REPO, "test", "fixtures", "real-expected.json"), "utf8")) as Record<string, unknown>;
+    const bash = loadFixtures().filter((f) => f.event.hook_event_name === "PreToolUse" && f.event.tool_name === "Bash" && !(f.name in expectedFlags));
     const place = (raw: string) => raw.replaceAll("/REDACTED_PROJECT", root);
     for (const f of bash) await runCli(["hook"], { cwd: root, stdin: place(f.raw), env: { CLAUDE_PROJECT_DIR: root } });
     const flagged = JSON.parse(place(bash[0]!.raw)) as { tool_input: Record<string, unknown> };

@@ -1,0 +1,8 @@
+{
+  "_comment": "Expected rule-engine verdicts for test/fixtures/real/*.json PreToolUse payloads. Anything not listed must be 'allow'. Used by test/integration/hook-verdict.test.ts and scripts/eval-rules.mjs.",
+  "17-PreToolUse-Bash.json": {
+    "verdict": "flag",
+    "ruleIds": ["destructive/delete-outside-project"],
+    "why": "Real session 2026-10-31 19:53:36 (local): non-recursive rm of two files in ~/veto-test-junk, outside the project. Logged as 'allow' before this rule existed."
+  }
+}
