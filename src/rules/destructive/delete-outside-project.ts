@@ -11,7 +11,10 @@ const DELETE_TIP = "Confirm with the user before deleting files outside the proj
 const MOVE_TIP = "Copy the file (cp) instead of moving it, or confirm with the user first.";
 const finding = (severity: Severity, reason: string, suggestion = DELETE_TIP): Finding => ({ ruleId: ID, category: "destructive", severity, reason, suggestion });
 
-const PLACE: Record<string, string> = { home: "your home directory", system: "a system location", "outside-project": "outside the project" };
+/** "rm deletes a file <IN>" */
+const IN: Record<string, string> = { home: "in your home directory", system: "in a system location", "outside-project": "outside the project" };
+/** "mv moves a file out of <FROM>" */
+const FROM: Record<string, string> = { home: "your home directory", system: "a system location", "outside-project": "a folder outside the project" };
 const SEVERITY: Record<string, Severity> = { home: "medium", "outside-project": "medium", system: "high" };
 
 /** Split arguments when some options take a separate value word. */
@@ -73,7 +76,7 @@ function checkDelete(c: SimpleCommand, ctx: RuleContext): Finding[] {
       out.push(finding("low", `${d.verb} ${arg.raw}; the path couldn't be resolved.`));
       continue;
     }
-    out.push(finding(SEVERITY[t.cls] ?? "medium", `${d.verb} a file in ${PLACE[t.cls] ?? t.cls} (${display(t.abs, arg, ctx)}).`));
+    out.push(finding(SEVERITY[t.cls] ?? "medium", `${d.verb} a file ${IN[t.cls] ?? t.cls} (${display(t.abs, arg, ctx)}).`));
   }
   return out;
 }
@@ -109,7 +112,7 @@ function checkMove(c: SimpleCommand, ctx: RuleContext): Finding[] {
     if (srcUnknown || destUnknown) {
       out.push(finding("low", `mv of ${arg.raw} into ${destUnknown ? dest.raw : into}; the paths couldn't be resolved.`, MOVE_TIP));
     } else {
-      out.push(finding("medium", `mv moves a file out of ${PLACE[st.cls] ?? st.cls} (${display(st.abs, arg, ctx)}) into ${into}.`, MOVE_TIP));
+      out.push(finding("medium", `mv moves a file out of ${FROM[st.cls] ?? st.cls} (${display(st.abs, arg, ctx)}) into ${into}.`, MOVE_TIP));
     }
   }
   return out;

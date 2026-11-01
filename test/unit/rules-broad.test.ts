@@ -64,3 +64,9 @@ describe("destructive/broad: dd and mkfs", () => {
     }
   });
 });
+
+describe("destructive/broad: reason wording", () => {
+  it("outside-project targets read naturally", () => {
+    expect(runBash(broad, "find /tmp/cache -delete")[0]!.reason).toBe("find -delete in a path outside the project (/tmp/cache).");
+  });
+});

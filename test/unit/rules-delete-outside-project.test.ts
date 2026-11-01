@@ -86,3 +86,13 @@ describe("destructive/delete-outside-project: mv out of the user's space", () =>
   });
 });
 
+
+describe("reason wording (found in a real claude -p probe: 'a file in outside the project')", () => {
+  it("reads naturally for each place", () => {
+    const r = (c: string) => runBash(deleteOutsideProject, c)[0]!.reason;
+    expect(r("rm /tmp/x.txt")).toBe("rm deletes a file outside the project (/tmp/x.txt).");
+    expect(r("rm ~/x.txt")).toBe("rm deletes a file in your home directory (~/x.txt).");
+    expect(r("rm /etc/x.conf")).toBe("rm deletes a file in a system location (/etc/x.conf).");
+    expect(r("mv /tmp/x.txt src/")).toBe("mv moves a file out of a folder outside the project (/tmp/x.txt) into the project.");
+  });
+});

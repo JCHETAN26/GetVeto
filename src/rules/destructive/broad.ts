@@ -14,7 +14,7 @@ const TIP = {
 };
 const finding = (severity: Severity, reason: string, suggestion?: string): Finding => ({ ruleId: ID, category: "destructive", severity, reason, ...(suggestion ? { suggestion } : {}) });
 
-const PLACE: Record<string, string> = { home: "your home directory", system: "a system location", "outside-project": "outside the project" };
+const PLACE: Record<string, string> = { home: "your home directory", system: "a system location", "outside-project": "a path outside the project" };
 
 /** Severity for a path target given the per-class severities; null = not flagged. */
 function judge(t: Target, bySeverity: Partial<Record<string, Severity>>): Severity | null {
