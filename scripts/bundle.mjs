@@ -24,6 +24,10 @@ await build({
   platform: "node",
   target: "node20",
   logLevel: "warning",
+  // Smaller file = less to read and hash on each start (~1 ms, D3). Identifiers are kept so
+  // stack traces in .veto/errors.log still name the functions.
+  minifyWhitespace: true,
+  minifySyntax: true,
   // The sources are ESM and use import.meta.url to find files next to themselves; in the bundle
   // that is dist/veto.js, which sits where the tsc-built modules used to (dist/), so relative
   // URLs (./cli.js, ../package.json) keep resolving to the same files.
