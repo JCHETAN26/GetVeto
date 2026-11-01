@@ -60,7 +60,9 @@ Created by `veto init`. All fields are optional:
 
 ## Install
 
-Requires Node.js 20 or newer.
+Requires Node.js 22 or newer. Claude Code runs Veto as a new process before every tool call, so startup time is
+what you feel. Node 22 can cache Veto's compiled code (below), which keeps a Bash check under about 30 ms; Node 20 has
+no such cache (about 40 ms) and reached end-of-life on 2026-04-30 (see [docs/decisions.md](docs/decisions.md) D3).
 
 ```sh
 npm install -g getveto

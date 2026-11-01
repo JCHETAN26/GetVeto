@@ -22,7 +22,7 @@ await build({
   bundle: true,
   format: "cjs",
   platform: "node",
-  target: "node20",
+  target: "node22",
   logLevel: "warning",
   // Smaller file = less to read and hash on each start (~1 ms, D3). Identifiers are kept so
   // stack traces in .veto/errors.log still name the functions.
