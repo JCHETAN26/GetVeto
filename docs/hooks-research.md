@@ -344,6 +344,20 @@ The same shape with `"ask"`. The top-level `decision`/`reason` fields are deprec
   `ask` rules rather than prompting."* The docs don't name hook asks explicitly, but a hook "ask" is a prompt, so it
   should be denied. **UNCLEAR** until checked live.
 
+### Live check (2026-10-31, Claude Code 2.1.316, `claude -p --permission-mode default`, guard mode)
+Scratch git repo with a throwaway uncommitted change, `veto init --guard`:
+- **deny**: asked Claude to run `git reset --hard`. It was blocked, and the change survived. Claude received:
+  `PreToolUse:Bash hook error: Veto: blocked this call. [destructive/git-discard] git reset --hard would discard
+  uncommitted changes in this work tree. Safer: Run \`git stash\` first ...`. Note the **`PreToolUse:Bash hook
+  error:` prefix** Claude Code puts in front of a JSON deny reason. Log: `⛔ denied high`.
+- **ask** in `-p` (nobody to answer): asked Claude to `rm ../probe-target.txt` (outside the project, medium). It was
+  denied, the file survived, and Claude quoted the reason verbatim (*"Veto: asking the user to confirm this call.
+  ..."*), matching the docs. Log: `? asked medium`. This probe also caught a wording bug ("a file in outside the
+  project"), fixed in e8c0f05.
+- **Not checked live:** `ask` in interactive auto mode (founder's manual plan, Task #4 step 4), and bypassPermissions.
+  The assistant's own session refused to start a nested `claude --permission-mode bypassPermissions`, so that stays
+  UNCLEAR.
+
 ### Never "allow"
 Unchanged and re-confirmed: *"`"allow"` skips the permission prompt"*. Guard mode outputs only "deny" or "ask".
 Everything else (watch mode, no findings, only "log" findings, any error) is exit 0 with empty stdout.
