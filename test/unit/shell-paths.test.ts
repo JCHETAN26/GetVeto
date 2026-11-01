@@ -12,7 +12,8 @@ describe("resolvePath", () => {
     expect(resolvePath("src/index.js", root, home)).toBe("/home/alice/code/app/src/index.js");
     expect(resolvePath("./dist/../src", root, home)).toBe("/home/alice/code/app/src");
     expect(resolvePath("/etc/../usr/bin", root, home)).toBe("/usr/bin");
-    expect(resolvePath("~bob/x", root, home)).toBe("/home/alice/code/app/~bob/x"); // ~user isn't expanded
+    expect(resolvePath("~bob/x", root, home)).toBe("/home/bob/x");
+    expect(resolvePath("~alice/notes", root, home)).toBe("/home/alice/notes");
   });
 });
 
@@ -60,5 +61,39 @@ describe("classifyPath", () => {
   it("project root outside home (e.g. /workspace) still classifies inside first", () => {
     expect(classifyPath("src", "/workspace/app", "/workspace/app", home)).toBe("inside-project");
     expect(classifyPath("../lib", "/workspace/app", "/workspace/app", home)).toBe("outside-project");
+  });
+});
+
+describe("classifyPath: ~user and unknown", () => {
+  it("~otheruser/ is another user's home (system); ~me/ is home", () => {
+    expect(cls("~bob/projects")).toBe("system");
+    expect(cls("~bob")).toBe("system");
+    expect(cls("~alice/Downloads")).toBe("home");
+    expect(cls("~alice/code/app/src")).toBe("inside-project");
+    expect(classifyPath("~bob/x", "/Users/alice", "/Users/alice/app", "/Users/alice")).toBe("system");
+    expect(resolvePath("~bob/x", "/", "/Users/alice")).toBe("/Users/bob/x");
+  });
+
+  it("unresolved parsed args are unknown; resolved ones classify normally", () => {
+    expect(cls({ value: "$BUILD_DIR", unresolved: true })).toBe("unknown");
+    expect(cls({ value: "src/*.js", unresolved: true })).toBe("unknown");
+    expect(cls({ value: "/home/alice/code/app/dist", unresolved: false })).toBe("inside-project");
+    // a plain string is literal, even with glob characters
+    expect(cls("src/*.js")).toBe("inside-project");
+  });
+
+  it("an unknown cwd makes relative paths unknown, not absolute or ~ ones", () => {
+    expect(classifyPath("src", null, root, home)).toBe("unknown");
+    expect(classifyPath("../x", null, root, home)).toBe("unknown");
+    expect(classifyPath("/etc/hosts", null, root, home)).toBe("system");
+    expect(classifyPath("~/notes", null, root, home)).toBe("home");
+  });
+
+  it("works with parseCommand output", async () => {
+    const { parseCommand } = await import("../../src/shell/parse.js");
+    const r = parseCommand("cd $DIR && ls src; ls ~/notes $OUT", { cwd: root, home }) as { commands: import("../../src/shell/parse.js").SimpleCommand[] };
+    const [, ls1, ls2] = r.commands;
+    expect(classifyPath(ls1!.argWords[0]!, ls1!.cwd, root, home)).toBe("unknown"); // cwd unknown after cd $DIR
+    expect(ls2!.argWords.map((a) => classifyPath(a, ls2!.cwd, root, home))).toEqual(["home", "unknown"]);
   });
 });
