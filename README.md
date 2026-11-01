@@ -51,6 +51,10 @@ npm install -g getveto
 
 The package is not on npm yet. Until then, from a clone of this repo: `npm install && npm run build && npm link`.
 
+On Node 22.1 and newer, Veto keeps Node's compile cache for its own code in `$XDG_CACHE_HOME/getveto` (default
+`~/.cache/getveto`, about 50 KB per Node version and Veto build), which makes each hook call a few ms faster. It holds
+only compiled Veto code, never your data. You can delete it at any time, and `VETO_NO_COMPILE_CACHE=1` turns it off.
+
 ## Use
 
 ```sh
@@ -114,12 +118,16 @@ non-blocking "hook error" and nothing is logged.
   such as exFAT and FAT32 drives, ignore Unix permissions. On those, the files are readable by anyone with access to
   the drive.
 - To delete your history, remove the `.veto/` folder.
+- Veto writes nowhere else, except Node's compile cache for Veto's own code (see Install).
 
 ## Development
 
 ```sh
 npm install
+npm run build       # tsc -> build/ (tooling), then esbuild -> dist/ (what ships: one CommonJS bundle)
 npm test            # builds, then runs unit + integration tests against the built CLI
+npm run bench       # hook latency over the real fixtures; compare builds with
+                    #   node scripts/bench-hook.mjs --only-pre --bash --cli <a>/dist/cli.js --cli <b>/dist/cli.js
 npm run capture-fixtures -- --from ~/veto-sandbox -n 20   # copy real, redacted payloads into test/fixtures/real/
 ```
 
