@@ -21,10 +21,27 @@ one-sentence reason and a safer alternative) or `allow`.
   would otherwise get. `veto log` marks denied calls ⛔ and asked ones `?`.
 
 Rules so far: recursive `rm` outside regenerable build folders, deleting or moving files outside the project, git
-commands that discard work (`reset --hard`, `checkout -- .`, `restore`, `clean -dx`), force pushes, `find -delete` /
-recursive `chmod`/`chown` outside the project, `dd`, `mkfs`, file writes outside the project, and Read/Write/Edit on
-secret-looking paths (`.env`, `*.pem`, `~/.ssh`). If Veto itself fails or crashes, or its config is invalid, the
-tool call goes ahead with no decision and the error goes to `.veto/errors.log`.
+commands that discard work (`reset --hard`, `checkout -- .`, `restore`, `clean -dx`), force pushes, deleting
+branches (`git push --delete`, `git push origin :branch`, `git branch -D`), `git stash drop` / `clear`,
+`find -delete` / recursive `chmod`/`chown` outside the project, `dd`, `mkfs`, file writes outside the project, and
+Read/Write/Edit on secret-looking paths (`.env`, `*.pem`, `~/.ssh`). Veto follows the safe order inside one command:
+`git stash && git reset --hard` is low (the changes are stashed first), while `git stash && git stash drop` is high.
+If Veto itself fails or crashes, or its config is invalid, the tool call goes ahead with no decision and the error
+goes to `.veto/errors.log`.
+
+### Overrides: your call, in your terminal
+
+When guard mode blocks something you actually want, run one of these **yourself**, in your own terminal:
+
+- `veto allow --once`: the next tool call in this project whose blocking findings match the most recent denial goes
+  ahead, once, within 10 minutes. Then ask Claude to retry. A call with a different finding is still blocked.
+- `veto allow <ruleId>` / `veto deny <ruleId>`: stop checking one rule in this project, or check it again (edits
+  `disabledRules` in `.veto/config.json`).
+
+Overrides apply only to the project they were made in, and each one is recorded in `.veto/log.jsonl` (`veto log`
+shows them). The agent can't grant itself one: in guard mode, Claude running `veto allow`, `veto mode watch` or
+`veto uninstall`, or writing into `.veto/`, is denied (`self-protection/override`), and the reason tells you to run it
+in your own terminal if you agree.
 
 ### `.veto/config.json`
 
@@ -73,7 +90,9 @@ veto log           # see what it did
 | `veto mode [watch\|guard]` | Shows the mode, or sets it in `.veto/config.json`. Takes effect on Claude Code's next tool call. |
 | `veto status` | Mode, whether the hook is in `.claude/settings.local.json` / `.claude/settings.json`, the config path, and the last 5 flagged calls. |
 | `veto init --shared` | Adds the hook (as plain `veto hook`, see below) to **`.claude/settings.json`** instead. That's the file teams commit, so everyone working in the repo gets Veto. Teammates who don't have `veto` installed will see a non-blocking "hook error" notice on each tool call. |
-| `veto log [-n N] [--flagged] [--file <log.jsonl>]` | Prints the last N tool calls (default 20) as a timeline: time, event (`pre` / `post` / `FAIL`), tool, and a one-line summary such as the command or file path. Flagged calls end with `⚑ severity: reason` (guard mode: `⛔ denied` / `? asked`); `--flagged` shows only those. `--file` reads a saved copy of a log (e.g. one kept before rebuilding a sandbox) instead of `./.veto/log.jsonl`. |
+| `veto log [-n N] [--flagged] [--verbose] [--file <log.jsonl>]` | Prints the last N tool calls (default 20) as a timeline: time, event (`pre` / `post` / `FAIL`), tool, and a one-line summary such as the command or file path. It reads the log of the nearest `.veto` folder at or above the current directory, like git. Flagged calls end with `⚑ severity: reason` (guard mode: `⛔ denied` / `? asked`; `✓ allowed once by you` after `veto allow --once`); `--flagged` shows only those, and `--verbose` lists every finding instead of `(+N more)`. `--file` reads a saved copy of a log (e.g. one kept before rebuilding a sandbox). |
+| `veto allow --once` | Lets the next call matching the most recent denial go ahead, once, within 10 minutes (see Overrides). |
+| `veto allow <ruleId>` / `veto deny <ruleId>` | Stops checking a rule in this project, or checks it again. |
 | `veto label [--from <dir>] [--to <repo>]` | Walks through the logged `PreToolUse` calls in `<dir>/.veto/log.jsonl` (default: current folder) that aren't labeled yet. For each one it shows the full command or path, the time, whether it ran or got no post event (denied/interrupted), and the prompt behind it. You press keys to label it: verdict `a`llow / `f`lag, a category (benign, destructive, secret-access, exfiltration, injection-driven, other), the scenario number, and an optional note. Each label is saved as `<repo>/test/fixtures/redteam/<id>.json` (default repo: the GetVeto checkout `veto` runs from), with the event redacted the same way `capture-fixtures` does. You can quit at any time with `q` and resume later; nothing is ever labeled twice. |
 | `veto uninstall` | Removes Veto's hook from whichever of `.claude/settings.local.json` and `.claude/settings.json` contain it, leaving all your other settings and hooks untouched. Your `.veto/` logs are kept. |
 | `veto hook` | What Claude Code runs. You don't call it yourself. |
@@ -94,9 +113,6 @@ on `UserPromptSubmit` (so a tool call can be traced back to the prompt that caus
 | | Hook command written | Why |
 |---|---|---|
 | `veto init` (local) | Absolute paths: `<node binary> <veto install>/dist/cli.js hook`, e.g. `/home/you/.nvm/versions/node/v22.14.0/bin/node /home/you/.../getveto/dist/cli.js hook` | Works even when Claude Code is launched from the desktop app or an IDE that doesn't load your shell's `PATH` (for example nvm). |
-| `veto init --guard` | Same, and starts in guard mode (can be combined with `--shared`). |
-| `veto mode [watch\|guard]` | Shows the mode, or sets it in `.veto/config.json`. Takes effect on Claude Code's next tool call. |
-| `veto status` | Mode, whether the hook is in `.claude/settings.local.json` / `.claude/settings.json`, the config path, and the last 5 flagged calls. |
 | `veto init --shared` | `veto hook`, looked up on `PATH` | The file is committed. Absolute paths would expose your machine's folder layout and wouldn't exist on teammates' machines. Each teammate needs `veto` on their `PATH`. |
 
 Re-running `veto init` upgrades an older Veto entry **in place**: a relative `veto hook`, or an absolute path from a
@@ -104,6 +120,17 @@ Node version or install location you no longer use. Its position and every other
 after that changes nothing. **Re-run `veto init` after switching Node versions (e.g. `nvm use`) or moving or
 reinstalling Veto**, because the absolute paths point at the old location. Until then, Claude Code shows a
 non-blocking "hook error" and nothing is logged.
+
+## What Veto does not cover
+
+- **Commands you type yourself.** Veto sees only the tool calls Claude Code makes. What you run in your own terminal
+  never reaches it.
+- **Sessions in folders without Veto installed.** The hook is installed per project (`veto init`). A Claude Code
+  session started in a folder where you didn't run `veto init` isn't checked or logged at all.
+- **Secret access and exfiltration.** Those rule categories exist but are still empty: apart from Read/Write/Edit on
+  secret-looking paths, Veto doesn't yet catch reading secrets through the shell or sending data off the machine.
+- **Every way to switch Veto off.** It blocks the direct routes (`veto allow`/`mode watch`/`uninstall` and writes into
+  `.veto/` by the agent), not every script that could edit `.veto/` or `.claude/settings*.json`.
 
 ## Privacy
 
