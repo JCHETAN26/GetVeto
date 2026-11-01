@@ -1,4 +1,5 @@
-// file-tools rules. Each rule lives in its own file next to this one.
+// file-tools rules (Read / Write / Edit / MultiEdit / NotebookEdit). One rule per file.
 import type { Rule } from "../types.js";
+import { outsideProject } from "./outside-project.js";
 
-export const rules: Rule[] = [];
+export const rules: Rule[] = [outsideProject];
