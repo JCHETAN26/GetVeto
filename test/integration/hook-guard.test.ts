@@ -126,6 +126,21 @@ describe("veto hook in guard mode (real fixtures)", () => {
     }
   });
 
+  it("veto log shows ⛔ for denied and ? for asked; --flagged lists both", async () => {
+    const root = project({ mode: "guard" });
+    const raw = byName("07-PreToolUse-Bash.json").raw;
+    await hook(placed(raw, root), root); // benign
+    await hook(withCommand(raw, root, "git push --force origin main"), root); // deny
+    await hook(placed(byName("17-PreToolUse-Bash.json").raw, root), root); // ask
+    const r = await runCli(["log"], { cwd: root });
+    const lines = r.stdout.trim().split("\n");
+    expect(lines[0]).not.toMatch(/[⛔?⚑] /);
+    expect(lines[1]).toContain("git push --force origin main  ⛔ denied high: Force push to main rewrites shared history.");
+    expect(lines[2]).toContain("? asked medium: rm deletes a file in your home directory (~/veto-test-junk/fake1.txt). (+1 more)");
+    const flagged = await runCli(["log", "--flagged"], { cwd: root });
+    expect(flagged.stdout.trim().split("\n")).toHaveLength(3); // 2 + footer
+  });
+
   it("never prints permissionDecision allow, for any real fixture, in either mode", async () => {
     for (const mode of ["guard", "watch"]) {
       const root = project({ mode });

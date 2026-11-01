@@ -16,6 +16,8 @@ export interface LogEntry {
   verdict?: string;
   findings?: LogFinding[];
   error?: string;
+  /** What the hook did (guard mode can ask or deny). Older entries don't have it. */
+  decision?: "allowed" | "asked" | "denied";
 }
 
 const MAX_SUMMARY = 100;
@@ -95,12 +97,16 @@ export function formatEntry(entry: LogEntry): string {
   return `${formatTime(entry.ts)}  ${label}  ${tool.padEnd(10)}  ${summary}${verdictSuffix(entry)}`;
 }
 
-/** "  ⚑ high: reason" for flagged lines (most severe finding first; the engine sorts them). */
+/**
+ * Marker for flagged lines, most severe finding first (the engine sorts them):
+ * "  ⛔ denied high: reason" / "  ? asked medium: reason" in guard mode, "  ⚑ high: reason" otherwise.
+ */
 export function verdictSuffix(entry: LogEntry): string {
   if (entry.verdict === "flag" && Array.isArray(entry.findings) && entry.findings.length > 0) {
     const [top, ...rest] = entry.findings;
     const more = rest.length > 0 ? ` (+${rest.length} more)` : "";
-    return `  ⚑ ${top!.severity}: ${top!.reason}${more}`;
+    const mark = entry.decision === "denied" ? "⛔ denied " : entry.decision === "asked" ? "? asked " : "⚑ ";
+    return `  ${mark}${top!.severity}: ${top!.reason}${more}`;
   }
   if (entry.verdict === "error") return `  ⚠ analysis error: ${oneLine(entry.error ?? "", 60)}`;
   return "";

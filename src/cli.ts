@@ -12,7 +12,8 @@ Usage:
                          --shared: .claude/settings.json (committed, applies to your team).
   veto log [-n N] [--flagged] [--file <log.jsonl>]
                          Show the last N logged tool calls (default 20). Flagged calls
-                         end with ⚑ severity: reason. --flagged shows only those.
+                         end with ⚑ severity: reason (guard mode: ⛔ denied / ? asked).
+                         --flagged shows only those.
                          --file reads a saved log instead of ./.veto/log.jsonl.
   veto label [--from <project-dir>] [--to <veto-repo-dir>]
                          Label logged PreToolUse calls (allow/flag + category) into

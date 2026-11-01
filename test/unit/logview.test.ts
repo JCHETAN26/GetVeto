@@ -74,3 +74,12 @@ describe("verdict markers (watch mode)", () => {
     expect(verdictSuffix({ ...base, verdict: "error", error: "boom" })).toBe("  ⚠ analysis error: boom");
   });
 });
+
+describe("guard-mode markers", () => {
+  const base = { ts: "2026-01-02T03:04:05.000Z", event: { hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: "git reset --hard" } }, verdict: "flag", findings: [{ severity: "high", reason: "Discards work." }] };
+  it("⛔ for denied, ? for asked, ⚑ for flagged but allowed", () => {
+    expect(verdictSuffix({ ...base, decision: "denied" })).toBe("  ⛔ denied high: Discards work.");
+    expect(verdictSuffix({ ...base, decision: "asked" })).toBe("  ? asked high: Discards work.");
+    expect(verdictSuffix({ ...base, decision: "allowed" })).toBe("  ⚑ high: Discards work.");
+  });
+});
