@@ -31,7 +31,8 @@
     "capture-fixtures": "node scripts/capture-fixtures.mjs",
     "redteam:setup": "node redteam/setup.mjs",
     "redteam:stats": "npm run -s build && node scripts/redteam-stats.mjs",
-    "bench": "npm run -s build && node scripts/bench-hook.mjs --only-pre --bash && node scripts/bench-hook.mjs --only-pre --non-bash && node scripts/bench-parse.mjs"
+    "bench": "npm run -s build && node scripts/bench-hook.mjs --only-pre --bash && node scripts/bench-hook.mjs --only-pre --non-bash && node scripts/bench-parse.mjs",
+    "eval": "npm run -s build && node scripts/eval-rules.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.20.5",
