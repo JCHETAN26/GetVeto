@@ -45,3 +45,12 @@ describe("formatLogLine", () => {
     expect(JSON.parse(line)).toEqual({ ts: "2026-01-02T03:04:05.000Z", event });
   });
 });
+
+describe("formatLogLine with a verdict (watch mode)", () => {
+  it("appends verdict, findings and analysis_ms after the event", () => {
+    const event = { hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: "ls" } };
+    const line = JSON.parse(formatLogLine(event, new Date("2026-01-02T03:04:05.000Z"), { verdict: "error", findings: [], analysis_ms: 1.5, error: "boom" }));
+    expect(line).toEqual({ ts: "2026-01-02T03:04:05.000Z", event, verdict: "error", findings: [], analysis_ms: 1.5, error: "boom" });
+    expect(Object.keys(line)).toEqual(["ts", "event", "verdict", "findings", "analysis_ms", "error"]);
+  });
+});

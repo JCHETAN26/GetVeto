@@ -8,7 +8,10 @@
 //     would auto-approve the call.
 //   - Fail open: any error is written to .veto/errors.log (or stderr as last resort) and we
 //     still exit 0 with empty stdout. We never exit 2 and never hang.
+//   - WATCH MODE: PreToolUse events also run the rule engine (src/rules/engine.ts). Its verdict
+//     is appended to the log line and nothing else changes: still exit 0, still empty stdout.
 import { join } from "node:path";
+import type { Verdict } from "./rules/engine.js";
 import { appendPrivate, ensureVetoDir, ERROR_FILE, LOG_FILE } from "./storage.js";
 import { truncateEvent } from "./truncate.js";
 
@@ -16,6 +19,10 @@ import { truncateEvent } from "./truncate.js";
 export const STDIN_TIMEOUT_MS = 2000;
 /** Refuse to buffer absurdly large payloads (protects memory; still allows). */
 export const MAX_STDIN_BYTES = 32 * 1024 * 1024;
+/** The engine gets this long; after it, the event is logged with verdict "error". */
+export const ENGINE_TIMEOUT_MS = 1500;
+/** Last-resort exit if anything after stdin stalls (the engine runs within ENGINE_TIMEOUT_MS). */
+export const EXIT_GUARD_MS = 3000;
 
 export interface ParseResult {
   ok: boolean;
@@ -58,11 +65,35 @@ export function resolveProjectRoot(
  * One log line. Oversized strings in tool_input / tool_response are capped (see truncate.ts);
  * when that happens the entry lists the affected paths in `truncated`.
  */
-export function formatLogLine(event: Record<string, unknown>, now: Date): string {
+export function formatLogLine(event: Record<string, unknown>, now: Date, verdict?: Verdict): string {
   const t = truncateEvent(event);
   const entry: Record<string, unknown> = { ts: now.toISOString(), event: t.event };
   if (t.truncated.length > 0) entry.truncated = t.truncated;
+  if (verdict) Object.assign(entry, verdict);
   return JSON.stringify(entry) + "\n";
+}
+
+/** Run the rule engine for a PreToolUse event. Never throws; never takes longer than the timeout. */
+export async function judge(event: Record<string, unknown>, projectRoot: string, timeoutMs = ENGINE_TIMEOUT_MS): Promise<Verdict> {
+  const start = performance.now();
+  const failed = (error: string): Verdict => ({
+    verdict: "error",
+    findings: [],
+    analysis_ms: Math.round((performance.now() - start) * 1000) / 1000,
+    error,
+  });
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    const run = import("./rules/engine.js").then(({ evaluate }) => evaluate(event, { projectRoot }));
+    const timeout = new Promise<Verdict>((res) => {
+      timer = setTimeout(() => res(failed(`engine timed out after ${timeoutMs}ms`)), timeoutMs);
+    });
+    return await Promise.race([run, timeout]);
+  } catch (e) {
+    return failed(String((e as Error)?.message ?? e));
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 function recordError(root: string, message: string): void {
@@ -81,8 +112,8 @@ function recordError(root: string, message: string): void {
   }
 }
 
-/** Process a raw stdin string. Never throws. */
-export function handlePayload(raw: string, env: NodeJS.ProcessEnv, cwd: string): void {
+/** Process a raw stdin string. Never throws (the promise never rejects). */
+export async function handlePayload(raw: string, env: NodeJS.ProcessEnv, cwd: string): Promise<void> {
   let root = cwd;
   try {
     const parsed = parseEvent(raw);
@@ -92,8 +123,11 @@ export function handlePayload(raw: string, env: NodeJS.ProcessEnv, cwd: string):
       recordError(root, `hook: ${parsed.error}; stdin preview: ${JSON.stringify(preview)}`);
       return;
     }
+    const now = new Date();
+    const verdict = parsed.event.hook_event_name === "PreToolUse" ? await judge(parsed.event, root) : undefined;
+    if (verdict?.verdict === "error") recordError(root, `engine: ${verdict.error}`);
     const dir = ensureVetoDir(root);
-    appendPrivate(join(dir, LOG_FILE), formatLogLine(parsed.event, new Date()));
+    appendPrivate(join(dir, LOG_FILE), formatLogLine(parsed.event, now, verdict));
   } catch (e) {
     recordError(root, `hook: ${(e as Error)?.stack ?? String(e)}`);
   }
@@ -113,10 +147,10 @@ export function runHook(): void {
     clearTimeout(timer);
     if (raw === null) {
       recordError(resolveProjectRoot(env, undefined, cwd), `hook: ${error}`);
-    } else {
-      handlePayload(raw, env, cwd);
+      process.exit(0);
     }
-    process.exit(0);
+    setTimeout(() => process.exit(0), EXIT_GUARD_MS).unref();
+    handlePayload(raw, env, cwd).finally(() => process.exit(0));
   };
 
   const timer = setTimeout(
@@ -124,7 +158,11 @@ export function runHook(): void {
     STDIN_TIMEOUT_MS,
   );
 
-  process.on("uncaughtException", (e) => finish(null, `uncaught: ${e?.stack ?? String(e)}`));
+  process.on("uncaughtException", (e) => {
+    if (!done) return finish(null, `uncaught: ${e?.stack ?? String(e)}`);
+    recordError(resolveProjectRoot(env, undefined, cwd), `hook: uncaught after stdin: ${e?.stack ?? String(e)}`);
+    process.exit(0);
+  });
 
   const stdin = process.stdin;
   stdin.on("data", (chunk: Buffer) => {
