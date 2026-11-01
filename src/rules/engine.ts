@@ -61,6 +61,8 @@ export interface EngineOptions {
   home?: string;
   /** Override the rule list (tests). */
   rules?: readonly Rule[];
+  /** Rule ids to skip (config disabledRules). */
+  disabledRules?: readonly string[];
 }
 
 /** Short: only runs when a work-discarding git command is present, and must not stall the hook. */
@@ -116,7 +118,8 @@ export async function evaluate(event: Record<string, unknown>, opts: EngineOptio
     const evCwd = str(event.cwd);
     const cwd = evCwd && isAbsolute(evCwd) ? evCwd : null;
 
-    const rules = opts.rules ?? (await rulesFor(toolName));
+    const disabled = new Set(opts.disabledRules ?? []);
+    const rules = (opts.rules ?? (await rulesFor(toolName))).filter((r) => !disabled.has(r.id));
     let commands: SimpleCommand[] = [];
     let incomplete: string | undefined;
     const command = toolInput.command;

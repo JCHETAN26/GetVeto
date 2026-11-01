@@ -8,9 +8,15 @@
 //     would auto-approve the call.
 //   - Fail open: any error is written to .veto/errors.log (or stderr as last resort) and we
 //     still exit 0 with empty stdout. We never exit 2 and never hang.
-//   - WATCH MODE: PreToolUse events also run the rule engine (src/rules/engine.ts). Its verdict
-//     is appended to the log line and nothing else changes: still exit 0, still empty stdout.
+//   - PreToolUse events also run the rule engine (src/rules/engine.ts); the verdict, the mode
+//     and the decision taken are appended to the log line.
+//     WATCH mode (default): nothing else changes, still exit 0 and empty stdout.
+//     GUARD mode (.veto/config.json): a finding whose action is deny/ask makes the hook print the
+//     documented PreToolUse JSON (permissionDecision "deny" or "ask"), still with exit 0.
+//     Never "allow". Any error on the way means no decision (empty stdout), and it's logged.
 import { join } from "node:path";
+import { loadConfig, type VetoConfig } from "./config.js";
+import { decide, type Decision } from "./decide.js";
 import type { Verdict } from "./rules/engine.js";
 import { appendPrivate, ensureVetoDir, ERROR_FILE, LOG_FILE } from "./storage.js";
 import { truncateEvent } from "./truncate.js";
@@ -65,16 +71,30 @@ export function resolveProjectRoot(
  * One log line. Oversized strings in tool_input / tool_response are capped (see truncate.ts);
  * when that happens the entry lists the affected paths in `truncated`.
  */
-export function formatLogLine(event: Record<string, unknown>, now: Date, verdict?: Verdict): string {
+/** What the hook did with a PreToolUse event, appended after the verdict. */
+export interface DecisionInfo {
+  mode: VetoConfig["mode"];
+  decision: Decision;
+  /** Set when .veto/config.json was invalid (the hook fell back to watch mode). */
+  config_error?: string;
+}
+
+export function formatLogLine(event: Record<string, unknown>, now: Date, verdict?: Verdict, info?: DecisionInfo): string {
   const t = truncateEvent(event);
   const entry: Record<string, unknown> = { ts: now.toISOString(), event: t.event };
   if (t.truncated.length > 0) entry.truncated = t.truncated;
   if (verdict) Object.assign(entry, verdict);
+  if (info) Object.assign(entry, info);
   return JSON.stringify(entry) + "\n";
 }
 
 /** Run the rule engine for a PreToolUse event. Never throws; never takes longer than the timeout. */
-export async function judge(event: Record<string, unknown>, projectRoot: string, timeoutMs = ENGINE_TIMEOUT_MS): Promise<Verdict> {
+export async function judge(
+  event: Record<string, unknown>,
+  projectRoot: string,
+  timeoutMs = ENGINE_TIMEOUT_MS,
+  disabledRules: readonly string[] = [],
+): Promise<Verdict> {
   const start = performance.now();
   const failed = (error: string): Verdict => ({
     verdict: "error",
@@ -84,7 +104,7 @@ export async function judge(event: Record<string, unknown>, projectRoot: string,
   });
   let timer: NodeJS.Timeout | undefined;
   try {
-    const run = import("./rules/engine.js").then(({ evaluate }) => evaluate(event, { projectRoot }));
+    const run = import("./rules/engine.js").then(({ evaluate }) => evaluate(event, { projectRoot, disabledRules }));
     const timeout = new Promise<Verdict>((res) => {
       timer = setTimeout(() => res(failed(`engine timed out after ${timeoutMs}ms`)), timeoutMs);
     });
@@ -112,8 +132,12 @@ function recordError(root: string, message: string): void {
   }
 }
 
-/** Process a raw stdin string. Never throws (the promise never rejects). */
-export async function handlePayload(raw: string, env: NodeJS.ProcessEnv, cwd: string): Promise<void> {
+/**
+ * Process a raw stdin string. Resolves to what the hook must print on stdout: "" (no decision)
+ * or the guard-mode deny/ask JSON. Never throws (the promise never rejects); on any error it
+ * resolves to "".
+ */
+export async function handlePayload(raw: string, env: NodeJS.ProcessEnv, cwd: string): Promise<string> {
   let root = cwd;
   try {
     const parsed = parseEvent(raw);
@@ -121,19 +145,33 @@ export async function handlePayload(raw: string, env: NodeJS.ProcessEnv, cwd: st
     if (!parsed.ok || !parsed.event) {
       const preview = raw.length > 200 ? raw.slice(0, 200) + "…" : raw;
       recordError(root, `hook: ${parsed.error}; stdin preview: ${JSON.stringify(preview)}`);
-      return;
+      return "";
     }
     const now = new Date();
-    const verdict = parsed.event.hook_event_name === "PreToolUse" ? await judge(parsed.event, root) : undefined;
-    if (verdict?.verdict === "error") recordError(root, `engine: ${verdict.error}`);
-    const dir = ensureVetoDir(root);
-    appendPrivate(join(dir, LOG_FILE), formatLogLine(parsed.event, now, verdict));
+    if (parsed.event.hook_event_name !== "PreToolUse") {
+      appendPrivate(join(ensureVetoDir(root), LOG_FILE), formatLogLine(parsed.event, now));
+      return "";
+    }
+    const loaded = loadConfig(root);
+    if (loaded.error) recordError(root, `config: ${loaded.error}; using watch mode`);
+    const verdict = await judge(parsed.event, root, ENGINE_TIMEOUT_MS, loaded.config.disabledRules);
+    if (verdict.verdict === "error") recordError(root, `engine: ${verdict.error}`);
+    const result = decide(verdict, loaded.config);
+    const info: DecisionInfo = { mode: loaded.config.mode, decision: result.decision };
+    if (loaded.error) info.config_error = loaded.error;
+    // Log first: if logging fails we land in the catch below and make no decision (fail open).
+    appendPrivate(join(ensureVetoDir(root), LOG_FILE), formatLogLine(parsed.event, now, verdict, info));
+    return result.stdout;
   } catch (e) {
     recordError(root, `hook: ${(e as Error)?.stack ?? String(e)}`);
+    return "";
   }
 }
 
-/** Entry point for `veto hook`. Always ends the process with exit 0 and empty stdout. */
+/**
+ * Entry point for `veto hook`. Always ends the process with exit 0. Stdout is empty unless
+ * guard mode decided deny/ask.
+ */
 export function runHook(): void {
   const env = process.env;
   const cwd = process.cwd();
@@ -150,7 +188,14 @@ export function runHook(): void {
       process.exit(0);
     }
     setTimeout(() => process.exit(0), EXIT_GUARD_MS).unref();
-    handlePayload(raw, env, cwd).finally(() => process.exit(0));
+    handlePayload(raw, env, cwd).then(
+      (out) => {
+        if (out === "") return process.exit(0);
+        // Exit only once the JSON is flushed (stdout pipes are async on some platforms).
+        process.stdout.write(out, () => process.exit(0));
+      },
+      () => process.exit(0),
+    );
   };
 
   const timer = setTimeout(
