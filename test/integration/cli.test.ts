@@ -256,6 +256,45 @@ describe("veto log", () => {
     expect((await runCli(["log", "-n", "zero"], { cwd: tempProject() })).code).toBe(1);
   });
 
+  it("--file reads a saved log from anywhere (absolute or relative), with --flagged and -n", async () => {
+    // Record real captured fixtures in one project, then move the log aside like a saved copy.
+    const root = tempProject();
+    const fixtures = loadFixtures();
+    for (const f of fixtures) await runCli(["hook"], { cwd: root, stdin: f.raw.replaceAll("/REDACTED_PROJECT", root), env: { CLAUDE_PROJECT_DIR: root } });
+    const elsewhere = tempProject();
+    const saved = join(elsewhere, "saved-log.jsonl");
+    writeFileSync(saved, readFileSync(join(root, ".veto", "log.jsonl")));
+    const other = tempProject(); // no .veto here
+
+    const all = await runCli(["log", "--file", saved, "-n", "100"], { cwd: other });
+    expect(all.code).toBe(0);
+    const lines = all.stdout.trim().split("\n");
+    expect(lines).toHaveLength(fixtures.length + 1);
+    expect(lines.at(-1)).toBe(`-- ${fixtures.length} of ${fixtures.length} entries from ${saved}`);
+
+    const rel = await runCli(["log", "--file", "saved-log.jsonl", "-n", "1"], { cwd: elsewhere });
+    expect(rel.code).toBe(0);
+    expect(rel.stdout.trim().split("\n")).toHaveLength(2);
+
+    // 17-PreToolUse-Bash.json is the real home-folder rm, which must flag (real-expected.json).
+    const flagged = await runCli(["log", "--file", saved, "--flagged"], { cwd: other });
+    expect(flagged.code).toBe(0);
+    expect(flagged.stdout).toContain("rm -- ~/veto-test-junk/fake1.txt");
+    expect(flagged.stdout).toContain("⚑ medium: rm deletes a file in your home directory (~/veto-test-junk/fake1.txt). (+1 more)");
+  });
+
+  it("--file errors: missing file or a directory exit 1; --file without a path is a usage error", async () => {
+    const dir = tempProject();
+    const missing = await runCli(["log", "--file", join(dir, "nope.jsonl")], { cwd: dir });
+    expect(missing.code).toBe(1);
+    expect(missing.stderr).toContain(`veto: no log file at ${join(dir, "nope.jsonl")}`);
+    expect(missing.stdout).toBe("");
+    expect((await runCli(["log", "--file", dir], { cwd: dir })).code).toBe(1);
+    const noArg = await runCli(["log", "--file"], { cwd: dir });
+    expect(noArg.code).toBe(1);
+    expect(noArg.stderr).toContain("--file expects a path");
+  });
+
   it("marks flagged calls with ⚑ severity: reason; --flagged shows only those", async () => {
     // Real captured Bash payloads; one has its command value replaced (shape unchanged).
     const root = tempProject();

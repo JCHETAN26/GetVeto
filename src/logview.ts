@@ -1,6 +1,7 @@
-// `veto log [-n N] [--flagged]`: readable timeline of .veto/log.jsonl.
-import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+// `veto log [-n N] [--flagged] [--file <log.jsonl>]`: readable timeline of .veto/log.jsonl
+// (or of a saved log file).
+import { existsSync, readFileSync, statSync } from "node:fs";
+import { join, resolve } from "node:path";
 import { LOG_FILE, VETO_DIR } from "./storage.js";
 
 export interface LogFinding {
@@ -129,11 +130,28 @@ export function parseLog(text: string): ParsedLog {
   return { entries, malformed };
 }
 
-export function showLog(root: string, n: number, out: (s: string) => void, opts: { flagged?: boolean } = {}): number {
-  const path = join(root, VETO_DIR, LOG_FILE);
-  if (!existsSync(path)) {
-    out(`No log yet at ${path}. Run \`veto init\` here, then use Claude Code in this folder.`);
-    return 0;
+export interface ShowLogOptions {
+  flagged?: boolean;
+  /** Read this saved log file (relative to root) instead of <root>/.veto/log.jsonl. */
+  file?: string;
+  /** Where errors go (default: out). */
+  err?: (s: string) => void;
+}
+
+export function showLog(root: string, n: number, out: (s: string) => void, opts: ShowLogOptions = {}): number {
+  let path: string;
+  if (opts.file !== undefined) {
+    path = resolve(root, opts.file);
+    if (!existsSync(path) || !statSync(path).isFile()) {
+      (opts.err ?? out)(`no log file at ${path}`);
+      return 1;
+    }
+  } else {
+    path = join(root, VETO_DIR, LOG_FILE);
+    if (!existsSync(path)) {
+      out(`No log yet at ${path}. Run \`veto init\` here, then use Claude Code in this folder.`);
+      return 0;
+    }
   }
   const { entries, malformed } = parseLog(readFileSync(path, "utf8"));
   const pool = opts.flagged ? entries.filter(isFlagged) : entries;
