@@ -28,6 +28,12 @@ const everyday = [
   "FOO=1 npm test",
   'echo "$(git rev-parse HEAD)"',
   "cat > CHANGELOG.md <<EOF\n## $(date +%F)\n- fixed tests\nEOF",
+  "bash -c 'npm test && npm run build'",
+  "cd src && ls",
+  "cd .. && git status",
+  "timeout 30 npm test",
+  "echo $HOME",
+  `bash -c "sh -c 'dash -c \\"zsh -c ls\\"'"`,
 ];
 const commands = [...new Set([...real, ...everyday])];
 
@@ -39,17 +45,17 @@ for (const c of commands) {
   for (let i = 0; i < 5; i++) {
     const r = spawnSync(
       process.execPath,
-      ["--input-type=module", "-e", `const t=performance.now();const m=await import(${JSON.stringify(mod)});const t1=performance.now();m.parseCommand(${JSON.stringify(c)});const t2=performance.now();console.log((t1-t).toFixed(3)+" "+(t2-t1).toFixed(3))`],
+      ["--input-type=module", "-e", `const t=performance.now();const m=await import(${JSON.stringify(mod)});const t1=performance.now();m.parseCommand(${JSON.stringify(c)},{cwd:process.cwd()});const t2=performance.now();console.log((t1-t).toFixed(3)+" "+(t2-t1).toFixed(3))`],
       { encoding: "utf8" },
     );
     colds.push(r.stdout.trim().split(" ").map(Number));
   }
   const med = (a) => [...a].sort((x, y) => x - y)[Math.floor(a.length / 2)];
-  for (let i = 0; i < 200; i++) parseCommand(c); // warm up the JIT
+  for (let i = 0; i < 200; i++) parseCommand(c, { cwd: repo }); // warm up the JIT
   const warm = [];
   for (let i = 0; i < 500; i++) {
     const t = performance.now();
-    parseCommand(c);
+    parseCommand(c, { cwd: repo });
     warm.push(performance.now() - t);
   }
   rows.push({ c, imp: med(colds.map((x) => x[0])), first: med(colds.map((x) => x[1])), warm: med(warm) * 1000 });
