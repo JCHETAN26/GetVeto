@@ -1,12 +1,13 @@
 // Builds what ships in dist/ (see docs/decisions.md D3):
 //   dist/package.json  {"type":"commonjs"}: dist/*.js load as CommonJS (faster to start than ESM)
-//   dist/cli.js        tiny entry, the path `veto init` writes into the hook command (unchanged
-//                      since Task #1, so existing installs keep working)
+//   dist/cli.js        tiny entry (a copy of src/entry.cjs; enables Node's compile cache). This is
+//                      the path `veto init` writes into the hook command, unchanged since Task #1,
+//                      so existing installs keep working.
 //   dist/veto.js       the whole CLI and its dependencies (unbash) in one CommonJS file
 //   dist/THIRD_PARTY_LICENSES.txt  licenses of bundled dependencies
 // The tsc output in build/ is for tooling only (eval, bench-parse, capture-fixtures).
 import { build } from "esbuild";
-import { chmodSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -31,14 +32,7 @@ await build({
 });
 
 writeFileSync(join(dist, "package.json"), JSON.stringify({ type: "commonjs" }) + "\n");
-writeFileSync(
-  join(dist, "cli.js"),
-  `#!/usr/bin/env node
-// Veto CLI entry. The code is in ./veto.js (one bundled file, see docs/decisions.md D3).
-"use strict";
-require("./veto.js");
-`,
-);
+copyFileSync(join(repo, "src", "entry.cjs"), join(dist, "cli.js"));
 chmodSync(join(dist, "cli.js"), 0o755);
 
 const unbash = join(repo, "node_modules", "unbash");
