@@ -30,6 +30,7 @@ export const CATEGORY_MODULES: readonly CategoryModule[] = [
   // TODO(founder): widen `tools` when the founder-authored rules for these categories land.
   { category: "secret-access", tools: ["Bash"], load: async () => (await import("./secret-access/index.js")).rules },
   { category: "exfiltration", tools: ["Bash"], load: async () => (await import("./exfiltration/index.js")).rules },
+  { category: "self-protection", tools: ["Bash", "Write", "Edit", "MultiEdit", "NotebookEdit"], load: async () => (await import("./self-protection/index.js")).rules },
 ];
 
 export const CATEGORIES = CATEGORY_MODULES.map((m) => m.category);

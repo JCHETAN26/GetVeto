@@ -3,7 +3,7 @@
 import type { SimpleCommand } from "../shell/parse.js";
 
 export type Severity = "low" | "medium" | "high";
-export type Category = "destructive" | "file-tools" | "secret-access" | "exfiltration";
+export type Category = "destructive" | "file-tools" | "secret-access" | "exfiltration" | "self-protection";
 
 export interface Finding {
   ruleId: string;

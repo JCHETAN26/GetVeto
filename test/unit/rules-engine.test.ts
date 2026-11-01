@@ -16,16 +16,17 @@ const flagEcho: Rule = {
 };
 
 describe("rule engine", () => {
-  it("registers the four category modules; secret-access and exfiltration are empty placeholders", async () => {
-    expect(CATEGORIES).toEqual(["destructive", "file-tools", "secret-access", "exfiltration"]);
+  it("registers the category modules; secret-access and exfiltration are empty placeholders", async () => {
+    expect(CATEGORIES).toEqual(["destructive", "file-tools", "secret-access", "exfiltration", "self-protection"]);
     expect(secretAccess).toEqual([]);
     expect(exfiltration).toEqual([]);
     expect((await allRules()).every((r) => r.category !== "secret-access" && r.category !== "exfiltration")).toBe(true);
   });
 
   it("loads only the categories that apply to the tool", async () => {
-    expect(new Set((await rulesFor("Bash")).map((r) => r.category))).toEqual(new Set(["destructive"]));
-    expect(new Set((await rulesFor("Edit")).map((r) => r.category))).toEqual(new Set(["file-tools"]));
+    expect(new Set((await rulesFor("Bash")).map((r) => r.category))).toEqual(new Set(["destructive", "self-protection"]));
+    expect(new Set((await rulesFor("Edit")).map((r) => r.category))).toEqual(new Set(["file-tools", "self-protection"]));
+    expect(new Set((await rulesFor("Read")).map((r) => r.category))).toEqual(new Set(["file-tools"]));
     expect(await rulesFor("Glob")).toEqual([]);
     expect(await rulesFor(undefined)).toEqual([]);
   });
