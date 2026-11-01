@@ -357,3 +357,90 @@ describe("directory tracking: cd / pushd / popd", () => {
     expect(cwds("command cd src; ls").at(-1)).toEqual(["ls", "/home/alice/app/src"]);
   });
 });
+
+describe("nested shells: bash/sh/zsh/dash -c and eval", () => {
+  const opts = { cwd: "/home/alice/app", home: "/home/alice" };
+  const all = (c: string) => {
+    const r = parseCommand(c, opts);
+    if ("parseError" in r) throw new Error(r.parseError);
+    return r.commands;
+  };
+
+  it("bash -c 'npm test && npm run build' includes the inner commands, marked nested", () => {
+    const c = all("bash -c 'npm test && npm run build'");
+    expect(c.map((x) => [x.program, x.args, x.nested, x.depth])).toEqual([
+      ["bash", ["-c", "npm test && npm run build"], false, 0],
+      ["npm", ["test"], true, 1],
+      ["npm", ["run", "build"], true, 1],
+    ]);
+    expect(c[0]!.unparsedNested).toBe(false);
+  });
+
+  it("sh -c, zsh -c, dash -c, combined flags (-lc, -ec) and /bin/sh", () => {
+    expect(all('sh -c "ls -la"').map((x) => x.program)).toEqual(["sh", "ls"]);
+    expect(all("zsh -c 'git status'").map((x) => x.program)).toEqual(["zsh", "git"]);
+    expect(all("dash -c 'pwd'").map((x) => x.program)).toEqual(["dash", "pwd"]);
+    expect(all("bash -lc 'node -v'").map((x) => x.program)).toEqual(["bash", "node"]);
+    expect(all("/bin/sh -ec 'make && make test'").map((x) => x.program)).toEqual(["/bin/sh", "make", "make"]);
+    expect(all("bash -o pipefail -c 'npm test | tee t.log'").slice(1).map((x) => [x.program, x.inPipeline])).toEqual([
+      ["npm", true],
+      ["tee", true],
+    ]);
+  });
+
+  it("bash without -c (a script file, or interactive) is not nested", () => {
+    expect(all("bash scripts/build.sh").map((x) => x.program)).toEqual(["bash"]);
+    expect(all("bash --version").map((x) => x.program)).toEqual(["bash"]);
+  });
+
+  it("wrapped nested shells and nested shells inside chains / pipelines", () => {
+    const c = all("sudo -u dev bash -c 'npm ci' && echo done");
+    expect(c.map((x) => [x.program, x.depth])).toEqual([["bash", 0], ["npm", 1], ["echo", 0]]);
+    expect(c[0]!.wrappers).toEqual(["sudo"]);
+    expect(all("timeout 60 sh -c 'npm test'").map((x) => x.program)).toEqual(["sh", "npm"]);
+  });
+
+  it("eval parses its joined arguments", () => {
+    expect(all("eval 'npm test'").map((x) => [x.program, x.nested])).toEqual([["eval", false], ["npm", true]]);
+    expect(all("eval git status").map((x) => [x.program, x.args])).toEqual([["eval", ["git", "status"]], ["git", ["status"]]]);
+  });
+
+  it("the inner shell starts in the current directory; its cd doesn't leak, but eval's does", () => {
+    expect(all("cd src && bash -c 'cd lib && ls' && pwd").map((x) => [x.program, x.cwd])).toEqual([
+      ["cd", "/home/alice/app"],
+      ["bash", "/home/alice/app/src"],
+      ["cd", "/home/alice/app/src"], // nested commands follow their parent
+      ["ls", "/home/alice/app/src/lib"],
+      ["pwd", "/home/alice/app/src"],
+    ]);
+    expect(all("eval 'cd src'; ls").at(-1)).toMatchObject({ program: "ls", cwd: "/home/alice/app/src" });
+  });
+
+  it("inner $HOME expands in the inner shell (single quotes defer it)", () => {
+    expect(all("bash -c 'ls $HOME'")[1]!.args).toEqual(["/home/alice"]);
+  });
+
+  it(`depth is capped at 3; the 4th level is returned with unparsedNested`, () => {
+    const c = all(`bash -c "sh -c 'dash -c \\"zsh -c ls\\"'"`);
+    expect(c.map((x) => [x.program, x.depth, x.unparsedNested])).toEqual([
+      ["bash", 0, false],
+      ["sh", 1, false],
+      ["dash", 2, false],
+      ["zsh", 3, true],
+    ]);
+    expect(c[3]!.nestedReason).toMatch(/deeper than 3/);
+  });
+
+  it("scripts built from variables or substitutions are not guessed at", () => {
+    const c = all('bash -c "$CMD"');
+    expect(c).toHaveLength(1);
+    expect(c[0]).toMatchObject({ program: "bash", unparsedNested: true });
+    expect(all('eval "$(ssh-agent -s)"')[0]).toMatchObject({ program: "eval", unparsedNested: true });
+  });
+
+  it("a nested script that fails to parse is marked, the outer parse still succeeds", () => {
+    const c = all(`bash -c 'echo "unterminated'`);
+    expect(c[0]).toMatchObject({ program: "bash", unparsedNested: true });
+    expect(c[0]!.nestedReason).toMatch(/nested parse error/);
+  });
+});

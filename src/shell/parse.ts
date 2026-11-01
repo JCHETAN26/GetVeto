@@ -70,9 +70,24 @@ export interface SimpleCommand {
    * null = unknown (no starting cwd given, `cd $DIR`, `cd -`, a cd inside an if/loop body, ...).
    */
   cwd: string | null;
+  /** Came from the script string of `bash -c '...'` (sh, zsh, dash) or `eval '...'`. */
+  nested: boolean;
+  /** 0 for top-level commands; +1 for each level of bash -c / eval. */
+  depth: number;
+  /**
+   * This command is `bash -c` / `eval` whose script was NOT expanded into the result: deeper
+   * than MAX_NESTED_DEPTH, built from variables or substitutions, or failed to parse.
+   */
+  unparsedNested: boolean;
+  /** Why the nested script wasn't parsed, when unparsedNested. */
+  nestedReason?: string;
   /** Source text of this command. */
   text: string;
 }
+
+/** bash -c inside bash -c inside bash -c is followed; one more level is not. */
+export const MAX_NESTED_DEPTH = 3;
+const NESTED_SHELLS = new Set(["bash", "sh", "zsh", "dash"]);
 
 export type ParseResult = { commands: SimpleCommand[] } | { parseError: string };
 
@@ -111,6 +126,7 @@ interface Ctx {
   inSubstitution: boolean;
   timed: boolean;
   extraRedirects: Redirect[];
+  depth: number;
 }
 
 /**
@@ -155,7 +171,7 @@ export function parseCommand(command: string, opts: ParseOptions = {}): ParseRes
       reassigned: new Set(),
       dirStack: [],
     };
-    walk(ast, { inPipeline: false, inSubstitution: false, timed: false, extraRedirects: [] }, st, command, out);
+    walk(ast, { inPipeline: false, inSubstitution: false, timed: false, extraRedirects: [], depth: 0 }, st, command, out);
     return { commands: out };
   } catch (e) {
     return { parseError: `parser failure: ${(e as Error)?.message ?? String(e)}` };
@@ -209,8 +225,10 @@ function walk(node: SyntaxNode, ctx: Ctx, st: State, src: string, out: SimpleCom
     case "Command": {
       // Substitutions in the words run before the command, against the state before it.
       const before = cloneState(st);
-      out.push(simple(node, ctx, st, src));
+      const cmd = simple(node, ctx, st, src);
+      out.push(cmd);
       forEachChild(node, (ch) => walk(ch, ctx, before, src, out));
+      nested(cmd, ctx, before, st, out);
       return;
     }
   }
@@ -367,6 +385,9 @@ function simple(node: Command, ctx: Ctx, st: State, src: string): SimpleCommand 
     wrappers,
     inSubstitution: ctx.inSubstitution,
     cwd,
+    nested: ctx.depth > 0,
+    depth: ctx.depth,
+    unparsedNested: false,
     text: src.slice(node.pos, node.end),
   };
 }
@@ -426,4 +447,45 @@ function changeDir(program: string, args: Arg[], st: State): void {
     return;
   }
   go(st.dirStack.shift()!);
+}
+
+/** The script string of `bash -c SCRIPT` / `eval ARGS...`, or undefined if this isn't one. */
+function nestedScript(cmd: SimpleCommand): { script: Arg[]; sameShell: boolean } | undefined {
+  if (cmd.program === "eval") return cmd.argWords.length ? { script: cmd.argWords, sameShell: true } : undefined;
+  if (cmd.program === null || !NESTED_SHELLS.has(base(cmd.program))) return undefined;
+  let hasC = false;
+  let k = 0;
+  for (; k < cmd.argWords.length; k++) {
+    const a = cmd.argWords[k]!.value;
+    if (a === "--" || a === "-") {
+      k++;
+      break;
+    }
+    if (!/^[-+]/.test(a)) break;
+    if (/^[-+][oO]$/.test(a)) k++; // -o option-name
+    else if (/^-[A-Za-z]+$/.test(a) && a.includes("c")) hasC = true;
+  }
+  const s = cmd.argWords[k];
+  return hasC && s ? { script: [s], sameShell: false } : undefined;
+}
+
+/**
+ * Parse a nested script and append its commands. `bash -c` starts a new shell in the current
+ * directory; `eval` runs in this shell, so its cd's persist.
+ */
+function nested(cmd: SimpleCommand, ctx: Ctx, before: State, st: State, out: SimpleCommand[]): void {
+  const n = nestedScript(cmd);
+  if (!n) return;
+  const skip = (reason: string) => {
+    cmd.unparsedNested = true;
+    cmd.nestedReason = reason;
+  };
+  if (ctx.depth + 1 > MAX_NESTED_DEPTH) return skip(`nested deeper than ${MAX_NESTED_DEPTH} levels`);
+  if (n.script.some((a) => a.unresolved)) return skip("script contains variables or substitutions");
+  const source = n.script.map((a) => a.value).join(" ");
+  const ast = parse(source);
+  if (ast.errors?.length) return skip(`nested parse error: ${ast.errors.map((e) => e.message).join("; ")}`);
+  const inner: Ctx = { inPipeline: false, inSubstitution: ctx.inSubstitution, timed: false, extraRedirects: [], depth: ctx.depth + 1 };
+  const shell = n.sameShell ? st : { ...cloneState(before), dirStack: [] };
+  walk(ast, inner, shell, source, out);
 }
