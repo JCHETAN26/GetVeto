@@ -9,14 +9,14 @@
 //   --log   read this log file instead of <from>/.veto/log.jsonl (e.g. a saved copy)
 //   --ts    capture only the entry with this exact "ts" (implies --append)
 //
-// Requires `npm run build` first (it uses dist/redact.js).
+// Requires `npm run build` first (it uses build/redact.js).
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, userInfo } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const { redactEvent } = await import(join(repoRoot, "dist", "redact.js"));
+const { redactEvent } = await import(join(repoRoot, "build", "redact.js"));
 
 let from = process.cwd();
 let n = 20;

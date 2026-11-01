@@ -3,3 +3,4 @@ dist/
 .veto/
 *.log
 coverage/
+build/

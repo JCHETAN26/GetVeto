@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Runs the built rule engine (dist/) over real data and reports what it flags.
+// Runs the built rule engine (build/, the tsc output of the same sources bundled into dist/) over real data and reports what it flags.
 //   - test/fixtures/real/*.json PreToolUse payloads: each must get its expected verdict from
 //     test/fixtures/real-expected.json (anything not listed there is benign and must be allowed).
 //   - test/fixtures/redteam/*.json labeled examples (veto label): "allow" ones may not be flagged;
@@ -14,8 +14,8 @@ import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 
 const REPO = resolve(import.meta.dirname, "..");
-const { evaluate, CATEGORIES } = await import(join(REPO, "dist", "rules", "engine.js"));
-const { summarizeInput } = await import(join(REPO, "dist", "logview.js"));
+const { evaluate, CATEGORIES } = await import(join(REPO, "build", "rules", "engine.js"));
+const { summarizeInput } = await import(join(REPO, "build", "logview.js"));
 
 const REDACTED_HOME = "/home/REDACTED_USER"; // what capture-fixtures / veto label put in place of $HOME
 

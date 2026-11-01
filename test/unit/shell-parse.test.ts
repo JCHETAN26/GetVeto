@@ -160,8 +160,8 @@ describe("parseCommand on everyday dev commands", () => {
 });
 
 describe("built module: lazy import has no side effects", () => {
-  it("importing dist/shell/parse.js prints nothing and works", () => {
-    const mod = join(REPO, "dist", "shell", "parse.js");
+  it("importing build/shell/parse.js (tsc output) prints nothing and works", () => {
+    const mod = join(REPO, "build", "shell", "parse.js");
     const r = spawnSync(
       process.execPath,
       ["--input-type=module", "-e", `const m = await import(${JSON.stringify(mod)}); process.exitCode = m.parseCommand("ls -la").commands[0].program === "ls" ? 0 : 3;`],

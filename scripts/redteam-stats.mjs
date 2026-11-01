@@ -6,7 +6,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const { computeStats, formatStats } = await import(join(repo, "dist", "label.js"));
+const { computeStats, formatStats } = await import(join(repo, "build", "label.js"));
 const dir = process.argv[2] ? resolve(process.argv[2]) : join(repo, "test", "fixtures", "redteam");
 if (!existsSync(dir)) {
   console.log(`No labeled examples yet (${dir} doesn't exist). Run \`veto label\` first.`);

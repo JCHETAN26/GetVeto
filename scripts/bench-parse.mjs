@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Measures parseCommand (dist/shell/parse.js) per command:
+// Measures parseCommand (build/shell/parse.js) per command:
 //   cold  = fresh `node` process: dynamic import of the module + first parse (what a hook pays)
 //   warm  = median of repeated parses in one process (parser cost alone)
 // Commands: every real captured Bash command (test/fixtures/real) + everyday dev commands.
@@ -9,7 +9,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const mod = join(repo, "dist", "shell", "parse.js");
+const mod = join(repo, "build", "shell", "parse.js");
 const fx = join(repo, "test", "fixtures", "real");
 const real = readdirSync(fx)
   .filter((f) => f.endsWith(".json"))
