@@ -8,6 +8,7 @@
 import { createRequire } from "node:module";
 import { homedir } from "node:os";
 import { isAbsolute } from "node:path";
+import { nowMs } from "../clock.js";
 import type { SimpleCommand } from "../shell/parse.js";
 import type { Category, Finding, GitStatus, Rule, RuleContext } from "./types.js";
 
@@ -108,8 +109,8 @@ export function mayMention(command: string, words: readonly string[]): boolean {
 const str = (v: unknown) => (typeof v === "string" && v !== "" ? v : undefined);
 
 export async function evaluate(event: Record<string, unknown>, opts: EngineOptions): Promise<Verdict> {
-  const start = performance.now();
-  const ms = () => Math.round((performance.now() - start) * 1000) / 1000;
+  const start = nowMs();
+  const ms = () => Math.round((nowMs() - start) * 1000) / 1000;
   try {
     const toolName = str(event.tool_name);
     const input = event.tool_input;

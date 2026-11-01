@@ -15,6 +15,7 @@
 //     documented PreToolUse JSON (permissionDecision "deny" or "ask"), still with exit 0.
 //     Never "allow". Any error on the way means no decision (empty stdout), and it's logged.
 import { join } from "node:path";
+import { nowMs } from "./clock.js";
 import { loadConfig, type VetoConfig } from "./config.js";
 import { decide, type Decision } from "./decide.js";
 import type { Verdict } from "./rules/engine.js";
@@ -95,11 +96,11 @@ export async function judge(
   timeoutMs = ENGINE_TIMEOUT_MS,
   disabledRules: readonly string[] = [],
 ): Promise<Verdict> {
-  const start = performance.now();
+  const start = nowMs();
   const failed = (error: string): Verdict => ({
     verdict: "error",
     findings: [],
-    analysis_ms: Math.round((performance.now() - start) * 1000) / 1000,
+    analysis_ms: Math.round((nowMs() - start) * 1000) / 1000,
     error,
   });
   let timer: NodeJS.Timeout | undefined;
