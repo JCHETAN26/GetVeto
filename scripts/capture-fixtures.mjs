@@ -6,6 +6,8 @@
 //   --from  project whose .veto/log.jsonl to read (default: current directory)
 //   -n      number of most recent entries to capture (default: 20)
 //   --append  keep existing fixtures and number new ones after them (default: replace them all)
+//   --log   read this log file instead of <from>/.veto/log.jsonl (e.g. a saved copy)
+//   --ts    capture only the entry with this exact "ts" (implies --append)
 //
 // Requires `npm run build` first (it uses dist/redact.js).
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -19,11 +21,18 @@ const { redactEvent } = await import(join(repoRoot, "dist", "redact.js"));
 let from = process.cwd();
 let n = 20;
 let append = false;
+let logFile = null;
+let onlyTs = null;
 const args = process.argv.slice(2);
 for (let i = 0; i < args.length; i++) {
   if (args[i] === "--from") from = resolve(args[++i] ?? "");
   else if (args[i] === "-n") n = Number(args[++i]);
   else if (args[i] === "--append") append = true;
+  else if (args[i] === "--log") logFile = resolve(args[++i] ?? "");
+  else if (args[i] === "--ts") {
+    onlyTs = args[++i] ?? "";
+    append = true;
+  }
   else {
     console.error(`unknown argument: ${args[i]}`);
     process.exit(1);
@@ -34,7 +43,7 @@ if (!Number.isInteger(n) || n <= 0) {
   process.exit(1);
 }
 
-const logPath = join(from, ".veto", "log.jsonl");
+const logPath = logFile ?? join(from, ".veto", "log.jsonl");
 if (!existsSync(logPath)) {
   console.error(`No log at ${logPath}. Run the demo first (veto init + Claude Code in that folder).`);
   process.exit(1);
@@ -45,14 +54,14 @@ for (const line of readFileSync(logPath, "utf8").split("\n")) {
   if (!line.trim()) continue;
   try {
     const v = JSON.parse(line);
-    if (v && typeof v.event === "object" && v.event) entries.push(v.event);
+    if (v && typeof v.event === "object" && v.event && (onlyTs === null || v.ts === onlyTs)) entries.push(v.event);
   } catch {
     /* skip malformed */
   }
 }
 const picked = entries.slice(-n);
 if (picked.length === 0) {
-  console.error(`No entries in ${logPath}.`);
+  console.error(onlyTs === null ? `No entries in ${logPath}.` : `No entry with ts ${onlyTs} in ${logPath}.`);
   process.exit(1);
 }
 
