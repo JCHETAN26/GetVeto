@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CATEGORIES, evaluate, RULES } from "../../src/rules/engine.js";
+import { allRules, CATEGORIES, evaluate, rulesFor } from "../../src/rules/engine.js";
 import { rules as exfiltration } from "../../src/rules/exfiltration/index.js";
 import { rules as secretAccess } from "../../src/rules/secret-access/index.js";
 import type { Rule } from "../../src/rules/types.js";
@@ -16,11 +16,18 @@ const flagEcho: Rule = {
 };
 
 describe("rule engine", () => {
-  it("registers the four category modules; secret-access and exfiltration are empty placeholders", () => {
+  it("registers the four category modules; secret-access and exfiltration are empty placeholders", async () => {
     expect(CATEGORIES).toEqual(["destructive", "file-tools", "secret-access", "exfiltration"]);
     expect(secretAccess).toEqual([]);
     expect(exfiltration).toEqual([]);
-    expect(RULES.every((r) => r.category !== "secret-access" && r.category !== "exfiltration")).toBe(true);
+    expect((await allRules()).every((r) => r.category !== "secret-access" && r.category !== "exfiltration")).toBe(true);
+  });
+
+  it("loads only the categories that apply to the tool", async () => {
+    expect(new Set((await rulesFor("Bash")).map((r) => r.category))).toEqual(new Set(["destructive"]));
+    expect(new Set((await rulesFor("Edit")).map((r) => r.category))).toEqual(new Set(["file-tools"]));
+    expect(await rulesFor("Glob")).toEqual([]);
+    expect(await rulesFor(undefined)).toEqual([]);
   });
 
   it("allow with no findings, flag with findings, and reports analysis time", async () => {
@@ -74,6 +81,38 @@ describe("rule engine", () => {
     for (const f of loadFixtures()) {
       const v = await evaluate(f.event, { projectRoot: String(f.event.cwd ?? root) });
       expect(v.verdict, f.name).not.toBe("error");
+    }
+  });
+});
+
+describe("parse prefilter (triggers)", () => {
+  it("mayMention sees a program name however bash would spell it", async () => {
+    const { mayMention } = await import("../../src/rules/engine.js");
+    const yes = ["rm -rf dist", "/bin/rm x", "sudo rm -r y", "\\rm -rf z", "r''m -rf z", '"rm" -rf z', "r\\\nm -rf z", "$'\\x72m' -rf z", 'x=$(rm -r a)', "mkfs.ext4 /dev/sdb1", "git status", "a;rm -r b"];
+    const no = ["npm test", "npm run format", "cat src/firmware.c", "ls -la", "node greet.js", "git-lfs ls-files", "add.sh"];
+    for (const c of yes) expect(mayMention(c, ["rm", "git", "mkfs"]), c).toBe(true);
+    for (const c of no) expect(mayMention(c, ["rm", "git", "mkfs"]), c).toBe(false);
+  });
+
+  it("skipping the parse never changes a verdict (same findings as checking every command)", async () => {
+    const { allRules } = await import("../../src/rules/engine.js");
+    const { parseCommand } = await import("../../src/shell/parse.js");
+    const rules = (await allRules()).filter((r) => r.category === "destructive");
+    const commands = [
+      "npm test", "ls -la", "cat notes.md", "rm -rf dist", "rm -rf ~", "r''m -rf ~", "\\rm -rf ~", '"rm" -rf src',
+      "$'\\x72m' -rf ~", "git push -f origin main", "g\\it push -f origin main", "git reset --hard", "find ~ -delete",
+      "chmod -R 777 ~", "sudo dd if=a.iso of=/dev/sdb", "mkfs.ext4 /dev/sdb1", "bash -c 'rm -rf ~'", "echo format",
+    ];
+    for (const command of commands) {
+      const viaEngine = await evaluate(bash(command), { projectRoot: root, home: "/home/alice" });
+      const r = parseCommand(command, { cwd: root, home: "/home/alice" });
+      const all = "commands" in r ? r.commands : [];
+      const ctx = { event: bash(command), toolName: "Bash", toolInput: { command }, projectRoot: root, home: "/home/alice", cwd: root, commands: all, gitStatus: () => null };
+      const direct = rules.flatMap((x) => x.check(ctx));
+      expect(viaEngine.findings.length, command).toBe(direct.length);
+      if (["r''m -rf ~", "\\rm -rf ~", "$'\\x72m' -rf ~", "g\\it push -f origin main"].includes(command)) {
+        expect(viaEngine.verdict, `obfuscated spelling still flagged: ${command}`).toBe("flag");
+      }
     }
   });
 });

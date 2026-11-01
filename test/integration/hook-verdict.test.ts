@@ -71,9 +71,10 @@ describe("veto hook in watch mode (real fixtures)", () => {
   });
 
   it("a command that doesn't parse is logged as incomplete, still allowed", async () => {
+    // It mentions a rule's program (rm), so the engine tries to parse it.
     const bash = pre.find((f) => f.event.tool_name === "Bash")!;
     const root = tempProject();
-    const line = await hook(withInput(bash.raw, root, { command: "echo $(" }), root);
+    const line = await hook(withInput(bash.raw, root, { command: "rm -rf $(" }), root);
     expect(line.verdict).toBe("allow");
     expect(line.incomplete).toMatch(/did not parse/);
   });

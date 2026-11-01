@@ -39,6 +39,12 @@ export interface RuleContext {
 export interface Rule {
   id: string;
   category: Category;
+  /**
+   * Bash rules: program names the rule can match. It never fires unless one of them appears
+   * in the command as a word (see mayMention in engine.ts), so the engine can skip parsing
+   * commands that mention none. Omit to always get parsed commands.
+   */
+  triggers?: readonly string[];
   check(ctx: RuleContext): Finding[];
 }
 

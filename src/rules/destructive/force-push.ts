@@ -20,6 +20,7 @@ function branchOf(refspec: string): string {
 export const forcePush: Rule = {
   id: ID,
   category: "destructive",
+  triggers: ["git"],
   check(ctx) {
     const out: Finding[] = [];
     for (const c of ctx.commands) {

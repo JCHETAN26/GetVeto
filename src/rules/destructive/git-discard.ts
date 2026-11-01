@@ -41,6 +41,7 @@ const NESTED = /\bgit\b[^;&|]*\b(reset\b[^;&|]*--hard|checkout\b[^;&|]*(\s-f\b|-
 export const gitDiscard: Rule = {
   id: ID,
   category: "destructive",
+  triggers: ["git"],
   check(ctx) {
     const out: Finding[] = [];
     for (const c of ctx.commands) {

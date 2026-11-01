@@ -25,6 +25,7 @@ function judge(abs: string, cls: string, ctx: RuleContext): { severity: Severity
 export const recursiveRm: Rule = {
   id: ID,
   category: "destructive",
+  triggers: ["rm"],
   check(ctx) {
     const out: Finding[] = [];
     for (const c of ctx.commands) {

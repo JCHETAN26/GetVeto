@@ -81,6 +81,7 @@ function ddRule(c: SimpleCommand, ctx: RuleContext): Finding[] {
 export const broad: Rule = {
   id: ID,
   category: "destructive",
+  triggers: ["find", "chmod", "chown", "chgrp", "dd", "mkfs", "mke2fs"],
   check(ctx) {
     const out: Finding[] = [];
     for (const c of ctx.commands) {

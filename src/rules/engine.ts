@@ -1,20 +1,49 @@
 // Rule engine: runs every registered rule over one PreToolUse event and returns a verdict.
 // WATCH MODE: the verdict is recorded only. Nothing here decides whether the call proceeds.
 // Never throws: any internal error becomes verdict "error" (the caller still allows).
-import { execFileSync } from "node:child_process";
+//
+// Startup cost matters (the hook is a fresh process per tool call), so category modules are
+// loaded only for the tools they apply to, the shell parser only for Bash, and child_process
+// only when a git check actually runs.
+import { createRequire } from "node:module";
 import { homedir } from "node:os";
 import { isAbsolute } from "node:path";
 import type { SimpleCommand } from "../shell/parse.js";
-import { rules as destructive } from "./destructive/index.js";
-import { rules as exfiltration } from "./exfiltration/index.js";
-import { rules as fileTools } from "./file-tools/index.js";
-import { rules as secretAccess } from "./secret-access/index.js";
-import { SEVERITY_RANK, type Finding, type GitStatus, type Rule, type RuleContext } from "./types.js";
+import type { Category, Finding, GitStatus, Rule, RuleContext } from "./types.js";
 
-export const RULES: readonly Rule[] = [...destructive, ...fileTools, ...secretAccess, ...exfiltration];
+// Local copy of types.ts SEVERITY_RANK so tools without rules load no rule modules at all.
+const SEVERITY_RANK = { low: 1, medium: 2, high: 3 } as const;
+const FILE_TOOLS = ["Read", "Write", "Edit", "MultiEdit", "NotebookEdit"];
+
+interface CategoryModule {
+  category: Category;
+  /** Tools whose events this category's rules look at. */
+  tools: readonly string[];
+  load(): Promise<readonly Rule[]>;
+}
 
 /** Registered category modules, in order. secret-access and exfiltration are empty placeholders. */
-export const CATEGORIES = ["destructive", "file-tools", "secret-access", "exfiltration"] as const;
+export const CATEGORY_MODULES: readonly CategoryModule[] = [
+  { category: "destructive", tools: ["Bash"], load: async () => (await import("./destructive/index.js")).rules },
+  { category: "file-tools", tools: FILE_TOOLS, load: async () => (await import("./file-tools/index.js")).rules },
+  // TODO(founder): widen `tools` when the founder-authored rules for these categories land.
+  { category: "secret-access", tools: ["Bash"], load: async () => (await import("./secret-access/index.js")).rules },
+  { category: "exfiltration", tools: ["Bash"], load: async () => (await import("./exfiltration/index.js")).rules },
+];
+
+export const CATEGORIES = CATEGORY_MODULES.map((m) => m.category);
+
+/** Every rule in every category (tests and tooling). */
+export async function allRules(): Promise<Rule[]> {
+  return (await Promise.all(CATEGORY_MODULES.map((m) => m.load()))).flat();
+}
+
+/** The rules that apply to one tool. */
+export async function rulesFor(toolName: string | undefined): Promise<Rule[]> {
+  if (!toolName) return [];
+  const mods = CATEGORY_MODULES.filter((m) => m.tools.includes(toolName));
+  return (await Promise.all(mods.map((m) => m.load()))).flat();
+}
 
 export interface Verdict {
   verdict: "allow" | "flag" | "error";
@@ -40,6 +69,7 @@ export const GIT_STATUS_TIMEOUT_MS = 500;
 /** `git status --porcelain` in dir. null on any failure (not a repo, timeout, no git). */
 export function readGitStatus(dir: string): GitStatus | null {
   try {
+    const { execFileSync } = createRequire(import.meta.url)("node:child_process") as typeof import("node:child_process");
     const out = execFileSync(
       "git",
       // Read-only: no optional index lock, and never run a repo-configured fsmonitor hook.
@@ -61,6 +91,18 @@ export function readGitStatus(dir: string): GitStatus | null {
   }
 }
 
+/**
+ * Could `command` run a program named one of `words`? Conservative: removes what bash removes
+ * while forming a word (backslash-newline, backslashes, quote characters) and looks for any of
+ * them as a whole word. ANSI-C quoting ($'\x72m') can spell anything, so it always says yes.
+ */
+export function mayMention(command: string, words: readonly string[]): boolean {
+  if (command.includes("$'")) return true;
+  const plain = command.replace(/\\\n/g, "").replace(/[\\'"]/g, "");
+  const alt = words.map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
+  return new RegExp(`(^|[^A-Za-z0-9_-])(${alt})($|[^A-Za-z0-9_-])`).test(plain);
+}
+
 const str = (v: unknown) => (typeof v === "string" && v !== "" ? v : undefined);
 
 export async function evaluate(event: Record<string, unknown>, opts: EngineOptions): Promise<Verdict> {
@@ -74,17 +116,22 @@ export async function evaluate(event: Record<string, unknown>, opts: EngineOptio
     const evCwd = str(event.cwd);
     const cwd = evCwd && isAbsolute(evCwd) ? evCwd : null;
 
+    const rules = opts.rules ?? (await rulesFor(toolName));
     let commands: SimpleCommand[] = [];
     let incomplete: string | undefined;
-    if (toolName === "Bash") {
-      const command = toolInput.command;
-      if (typeof command === "string") {
-        // Lazy: the parser is only loaded for Bash events.
-        const { parseCommand } = await import("../shell/parse.js");
-        const r = parseCommand(command, { cwd: cwd ?? undefined, home });
-        if ("parseError" in r) incomplete = `command did not parse: ${r.parseError}`;
-        else commands = r.commands;
-      }
+    const command = toolInput.command;
+    // Parse only if some rule could match: one without triggers, or a trigger word appears.
+    const needsParse =
+      toolName === "Bash" &&
+      typeof command === "string" &&
+      rules.length > 0 &&
+      (rules.some((r) => !r.triggers) || mayMention(command, rules.flatMap((r) => r.triggers ?? [])));
+    if (needsParse && typeof command === "string") {
+      // Lazy: the parser is only loaded for Bash events that need it.
+      const { parseCommand } = await import("../shell/parse.js");
+      const r = parseCommand(command, { cwd: cwd ?? undefined, home });
+      if ("parseError" in r) incomplete = `command did not parse: ${r.parseError}`;
+      else commands = r.commands;
     }
 
     const gitCache = new Map<string, GitStatus | null>();
@@ -103,7 +150,7 @@ export async function evaluate(event: Record<string, unknown>, opts: EngineOptio
     };
 
     const findings: Finding[] = [];
-    for (const rule of opts.rules ?? RULES) findings.push(...rule.check(ctx));
+    for (const rule of rules) findings.push(...rule.check(ctx));
     findings.sort((a, b) => SEVERITY_RANK[b.severity] - SEVERITY_RANK[a.severity]);
 
     const v: Verdict = { verdict: findings.length > 0 ? "flag" : "allow", findings, analysis_ms: ms() };
