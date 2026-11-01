@@ -3,8 +3,9 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { configPath, loadConfig, saveConfig, type Mode } from "./config.js";
 import { isVetoCliPath, LOCAL_SETTINGS, SHARED_SETTINGS } from "./install.js";
-import { formatEntry, isFlagged, parseLog } from "./logview.js";
+import { formatEntry, formatTime, isFlagged, parseLog } from "./logview.js";
 import { containsVeto, parseSettings } from "./settings.js";
+import { activeOnce, readOverrideFile } from "./override.js";
 import { ensureVetoDir, LOG_FILE, VETO_DIR } from "./storage.js";
 
 type Out = (line: string) => void;
@@ -64,6 +65,11 @@ export function showStatus(root: string, out: Out): number {
   out(`  ${LOCAL_SETTINGS.padEnd(28)} ${hookState(root, LOCAL_SETTINGS)}`);
   out(`  ${SHARED_SETTINGS.padEnd(28)} ${hookState(root, SHARED_SETTINGS)}`);
   out(`config: ${configPath(root)}${existsSync(configPath(root)) ? "" : " (not created yet; defaults apply)"}`);
+  const once = readOverrideFile(root);
+  if (once) {
+    const live = activeOnce(root, new Date()) !== null;
+    out(`override: allow --once ${live ? "pending" : "expired or not for this project"} (${once.findings.map((f) => f.ruleId).join(", ")}; expires ${formatTime(once.expires)})`);
+  }
   const logPath = join(root, VETO_DIR, LOG_FILE);
   if (!existsSync(logPath)) {
     out(`log: none yet at ${logPath}`);

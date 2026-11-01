@@ -14,10 +14,14 @@
 //     GUARD mode (.veto/config.json): a finding whose action is deny/ask makes the hook print the
 //     documented PreToolUse JSON (permissionDecision "deny" or "ask"), still with exit 0.
 //     Never "allow". Any error on the way means no decision (empty stdout), and it's logged.
+//   - A pending `veto allow --once` (src/override.ts), made by the user in their own terminal,
+//     removes the findings it covers before the decision; it is used up when that changes the
+//     decision. It never turns into an "allow" either: the call just gets no decision.
 import { join } from "node:path";
 import { nowMs } from "./clock.js";
 import { loadConfig, type VetoConfig } from "./config.js";
-import { decide, type Decision } from "./decide.js";
+import { decide, type Decision, type GuardResult } from "./decide.js";
+import { activeOnce, claimOnce, covers, type FindingKey } from "./override.js";
 import type { Verdict } from "./rules/engine.js";
 import { appendPrivate, ensureVetoDir, ERROR_FILE, LOG_FILE } from "./storage.js";
 import { truncateEvent } from "./truncate.js";
@@ -78,6 +82,33 @@ export interface DecisionInfo {
   decision: Decision;
   /** Set when .veto/config.json was invalid (the hook fell back to watch mode). */
   config_error?: string;
+  /** Asked or denied: the findings that caused it (what `veto allow --once` matches against). */
+  because?: FindingKey[];
+  /** A `veto allow --once` override was used up on this call. */
+  override?: { kind: "once"; granted: string; findings: FindingKey[] };
+}
+
+const keys = (fs: { ruleId: string; reason: string }[]): FindingKey[] => fs.map((f) => ({ ruleId: f.ruleId, reason: f.reason }));
+
+/**
+ * Apply a pending `veto allow --once`: drop the findings it covers and decide again. Used up only
+ * when that changes the decision. Any error leaves the decision as it was (and is logged).
+ */
+function applyOnce(root: string, now: Date, verdict: Verdict, config: VetoConfig, result: GuardResult): { result: GuardResult; override?: DecisionInfo["override"] } {
+  if (result.decision === "allowed") return { result };
+  try {
+    const o = activeOnce(root, now);
+    if (!o) return { result };
+    const covered = verdict.findings.filter((f) => covers(o, f));
+    if (covered.length === 0) return { result };
+    const rest = verdict.findings.filter((f) => !covers(o, f));
+    const next = decide({ ...verdict, verdict: rest.length ? "flag" : "allow", findings: rest }, config);
+    if (next.decision === result.decision || !claimOnce(root)) return { result };
+    return { result: next, override: { kind: "once", granted: o.created, findings: keys(covered) } };
+  } catch (e) {
+    recordError(root, `override: ${(e as Error)?.message ?? String(e)}; ignored`);
+    return { result };
+  }
 }
 
 export function formatLogLine(event: Record<string, unknown>, now: Date, verdict?: Verdict, info?: DecisionInfo): string {
@@ -157,9 +188,12 @@ export async function handlePayload(raw: string, env: NodeJS.ProcessEnv, cwd: st
     if (loaded.error) recordError(root, `config: ${loaded.error}; using watch mode`);
     const verdict = await judge(parsed.event, root, ENGINE_TIMEOUT_MS, loaded.config.disabledRules);
     if (verdict.verdict === "error") recordError(root, `engine: ${verdict.error}`);
-    const result = decide(verdict, loaded.config);
+    const once = applyOnce(root, now, verdict, loaded.config, decide(verdict, loaded.config));
+    const result = once.result;
     const info: DecisionInfo = { mode: loaded.config.mode, decision: result.decision };
     if (loaded.error) info.config_error = loaded.error;
+    if (result.because.length) info.because = keys(result.because);
+    if (once.override) info.override = once.override;
     // Log first: if logging fails we land in the catch below and make no decision (fail open).
     appendPrivate(join(ensureVetoDir(root), LOG_FILE), formatLogLine(parsed.event, now, verdict, info));
     return result.stdout;

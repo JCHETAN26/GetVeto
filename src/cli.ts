@@ -16,6 +16,11 @@ Usage:
                          Show or set the mode. watch: flag in the log, never block.
                          guard: deny high-severity calls, ask you about medium ones.
   veto status            Mode, where the hook is installed, config path, last 5 flags.
+  veto allow --once      Let the next call that matches the most recent denial go ahead,
+                         once, within 10 minutes, in this project only.
+  veto allow <ruleId>    Stop checking one rule in this project (adds it to disabledRules).
+  veto deny <ruleId>     Check that rule again (removes it from disabledRules).
+                         Run these yourself: Veto denies them when the agent runs them.
   veto log [-n N] [--flagged] [--file <log.jsonl>]
                          Show the last N logged tool calls (default 20). Flagged calls
                          end with ⚑ severity: reason (guard mode: ⛔ denied / ? asked).
@@ -55,6 +60,15 @@ async function main(): Promise<number> {
       if (argv.length > 1) return usageError("status takes no options");
       const { showStatus } = await import("./status.js");
       return showStatus(process.cwd(), console.log);
+    }
+    case "allow":
+    case "deny": {
+      const rest = argv.slice(1);
+      const err = (m: string) => process.stderr.write(`veto: ${m}\n`);
+      const { allowOnce, setRule } = await import("./override-cli.js");
+      if (cmd === "allow" && rest.length === 1 && rest[0] === "--once") return allowOnce(process.cwd(), console.log, err);
+      if (rest.length !== 1 || rest[0]!.startsWith("-")) return usageError(`usage: veto ${cmd === "allow" ? "allow --once | veto allow <ruleId>" : "deny <ruleId>"}`);
+      return setRule(process.cwd(), rest[0]!, cmd === "deny", console.log, err);
     }
     case "uninstall": {
       if (argv.length > 1) return usageError(`uninstall takes no options`);

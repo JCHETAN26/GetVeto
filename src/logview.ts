@@ -5,6 +5,7 @@ import { join, resolve } from "node:path";
 import { LOG_FILE, VETO_DIR } from "./storage.js";
 
 export interface LogFinding {
+  ruleId?: string;
   severity: string;
   reason: string;
 }
@@ -18,6 +19,15 @@ export interface LogEntry {
   error?: string;
   /** What the hook did (guard mode can ask or deny). Older entries don't have it. */
   decision?: "allowed" | "asked" | "denied";
+  /** Asked/denied: the findings that caused it. */
+  because?: { ruleId: string; reason: string }[];
+  /** A `veto allow --once` override was used up on this call. */
+  override?: { kind: string; granted?: string; findings?: { ruleId: string; reason: string }[] };
+  /**
+   * Written by the user's own `veto allow` / `veto deny`, not by a Claude Code event. Such lines
+   * have no "event" in the file; parseLog gives them an empty one.
+   */
+  veto?: { action: string; ruleId?: string; findings?: { ruleId: string; reason: string }[]; expires?: string; denied_ts?: string };
 }
 
 const MAX_SUMMARY = 100;
@@ -82,7 +92,20 @@ export function formatTime(iso: string): string {
   );
 }
 
+function formatVeto(entry: LogEntry): string {
+  const v = entry.veto!;
+  const head = `${formatTime(entry.ts)}  you   ${"veto".padEnd(10)}  `;
+  if (v.action === "allow-once") {
+    const what = (v.findings ?? []).map((f) => f.ruleId).join(", ");
+    return `${head}allow --once (${what}) for the call denied at ${formatTime(v.denied_ts ?? "")}, until ${v.expires ? formatTime(v.expires).slice(11, 16) : "?"}`;
+  }
+  if (v.action === "allow-rule") return `${head}allow ${v.ruleId}: rule disabled in this project`;
+  if (v.action === "deny-rule") return `${head}deny ${v.ruleId}: rule checked again`;
+  return `${head}${v.action}`;
+}
+
 export function formatEntry(entry: LogEntry): string {
+  if (entry.veto) return formatVeto(entry);
   const ev = entry.event;
   const eventName = str(ev.hook_event_name) ?? "?";
   const label = EVENT_LABEL[eventName] ?? eventName;
@@ -105,7 +128,7 @@ export function verdictSuffix(entry: LogEntry): string {
   if (entry.verdict === "flag" && Array.isArray(entry.findings) && entry.findings.length > 0) {
     const [top, ...rest] = entry.findings;
     const more = rest.length > 0 ? ` (+${rest.length} more)` : "";
-    const mark = entry.decision === "denied" ? "⛔ denied " : entry.decision === "asked" ? "? asked " : "⚑ ";
+    const mark = entry.decision === "denied" ? "⛔ denied " : entry.decision === "asked" ? "? asked " : entry.override ? "✓ allowed once by you, " : "⚑ ";
     return `  ${mark}${top!.severity}: ${top!.reason}${more}`;
   }
   if (entry.verdict === "error") return `  ⚠ analysis error: ${oneLine(entry.error ?? "", 60)}`;
@@ -128,6 +151,8 @@ export function parseLog(text: string): ParsedLog {
       const v = JSON.parse(line) as Partial<LogEntry>;
       if (typeof v.ts === "string" && v.event && typeof v.event === "object") {
         entries.push(v as LogEntry);
+      } else if (typeof v.ts === "string" && v.veto && typeof v.veto === "object" && typeof v.veto.action === "string") {
+        entries.push({ ...(v as LogEntry), event: {} });
       } else malformed++;
     } catch {
       malformed++;

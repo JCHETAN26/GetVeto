@@ -1,7 +1,7 @@
 // Owner-only storage for everything under <project>/.veto/.
 // Kept dependency-free and synchronous: it runs on the hook hot path.
 import { closeSync, fchmodSync, mkdirSync, openSync, writeSync, chmodSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 
 export const VETO_DIR = ".veto";
 export const LOG_FILE = "log.jsonl";
@@ -63,5 +63,23 @@ export function writePrivate(path: string, text: string): void {
     writeSync(fd, text);
   } finally {
     closeSync(fd);
+  }
+}
+
+/**
+ * The nearest folder at or above `start` that has a .veto directory (like git finds .git),
+ * or null. Used by the user-facing commands (log, allow, deny), never by the hook.
+ */
+export function findVetoRoot(start: string): string | null {
+  let dir = resolve(start);
+  for (;;) {
+    try {
+      if (statSync(join(dir, VETO_DIR)).isDirectory()) return dir;
+    } catch {
+      /* not here */
+    }
+    const up = dirname(dir);
+    if (up === dir) return null;
+    dir = up;
   }
 }
