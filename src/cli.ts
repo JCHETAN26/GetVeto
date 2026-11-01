@@ -21,11 +21,12 @@ Usage:
   veto allow <ruleId>    Stop checking one rule in this project (adds it to disabledRules).
   veto deny <ruleId>     Check that rule again (removes it from disabledRules).
                          Run these yourself: Veto denies them when the agent runs them.
-  veto log [-n N] [--flagged] [--file <log.jsonl>]
-                         Show the last N logged tool calls (default 20). Flagged calls
-                         end with ⚑ severity: reason (guard mode: ⛔ denied / ? asked).
-                         --flagged shows only those.
-                         --file reads a saved log instead of ./.veto/log.jsonl.
+  veto log [-n N] [--flagged] [--verbose] [--file <log.jsonl>]
+                         Show the last N logged tool calls (default 20) from the nearest
+                         .veto folder here or above. Flagged calls end with
+                         ⚑ severity: reason (guard mode: ⛔ denied / ? asked).
+                         --flagged shows only those. --verbose lists every finding.
+                         --file reads a saved log instead.
   veto label [--from <project-dir>] [--to <veto-repo-dir>]
                          Label logged PreToolUse calls (allow/flag + category) into
                          <veto-repo>/test/fixtures/redteam/. Resumable; never double-labels.
@@ -82,6 +83,7 @@ async function main(): Promise<number> {
     case "log": {
       let n = 20;
       let flagged = false;
+      let verbose = false;
       let file: string | undefined;
       const rest = argv.slice(1);
       for (let i = 0; i < rest.length; i++) {
@@ -91,13 +93,14 @@ async function main(): Promise<number> {
           if (!Number.isInteger(v) || v <= 0) return usageError("-n expects a positive integer");
           n = v;
         } else if (a === "--flagged") flagged = true;
+        else if (a === "--verbose") verbose = true;
         else if (a === "--file") {
           file = rest[++i];
           if (!file) return usageError("--file expects a path to a log file");
         } else return usageError(`unknown option for log: ${a}`);
       }
       const { showLog } = await import("./logview.js");
-      return showLog(process.cwd(), n, console.log, { flagged, file, err: (m) => process.stderr.write(`veto: ${m}\n`) });
+      return showLog(process.cwd(), n, console.log, { flagged, verbose, file, err: (m) => process.stderr.write(`veto: ${m}\n`) });
     }
     case "--version":
     case "-v": {

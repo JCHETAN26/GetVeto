@@ -2,7 +2,7 @@
 // (or of a saved log file).
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { LOG_FILE, VETO_DIR } from "./storage.js";
+import { findVetoRoot, LOG_FILE, VETO_DIR } from "./storage.js";
 
 export interface LogFinding {
   ruleId?: string;
@@ -104,7 +104,12 @@ function formatVeto(entry: LogEntry): string {
   return `${head}${v.action}`;
 }
 
-export function formatEntry(entry: LogEntry): string {
+export interface FormatOptions {
+  /** Every finding on its own line under the entry, instead of "(+N more)". */
+  verbose?: boolean;
+}
+
+export function formatEntry(entry: LogEntry, opts: FormatOptions = {}): string {
   if (entry.veto) return formatVeto(entry);
   const ev = entry.event;
   const eventName = str(ev.hook_event_name) ?? "?";
@@ -117,17 +122,21 @@ export function formatEntry(entry: LogEntry): string {
   if (eventName === "PostToolUseFailure" && typeof ev.error === "string") {
     summary += `  [error: ${oneLine(ev.error.split("\n")[0] ?? "", 60)}]`;
   }
-  return `${formatTime(entry.ts)}  ${label}  ${tool.padEnd(10)}  ${summary}${verdictSuffix(entry)}`;
+  const line = `${formatTime(entry.ts)}  ${label}  ${tool.padEnd(10)}  ${summary}${verdictSuffix(entry, opts)}`;
+  if (!opts.verbose || entry.verdict !== "flag" || !Array.isArray(entry.findings)) return line;
+  const details = entry.findings.map((f) => `      ${f.severity.padEnd(6)} ${f.ruleId ? `${f.ruleId}: ` : ""}${f.reason}`);
+  return [line, ...details].join("\n");
 }
 
 /**
  * Marker for flagged lines, most severe finding first (the engine sorts them):
  * "  ⛔ denied high: reason" / "  ? asked medium: reason" in guard mode, "  ⚑ high: reason" otherwise.
  */
-export function verdictSuffix(entry: LogEntry): string {
+export function verdictSuffix(entry: LogEntry, opts: FormatOptions = {}): string {
   if (entry.verdict === "flag" && Array.isArray(entry.findings) && entry.findings.length > 0) {
     const [top, ...rest] = entry.findings;
-    const more = rest.length > 0 ? ` (+${rest.length} more)` : "";
+    // --verbose lists every finding on the lines below instead.
+    const more = rest.length > 0 && !opts.verbose ? ` (+${rest.length} more)` : "";
     const mark = entry.decision === "denied" ? "⛔ denied " : entry.decision === "asked" ? "? asked " : entry.override ? "✓ allowed once by you, " : "⚑ ";
     return `  ${mark}${top!.severity}: ${top!.reason}${more}`;
   }
@@ -163,24 +172,34 @@ export function parseLog(text: string): ParsedLog {
 
 export interface ShowLogOptions {
   flagged?: boolean;
-  /** Read this saved log file (relative to root) instead of <root>/.veto/log.jsonl. */
+  verbose?: boolean;
+  /** Read this saved log file (relative to cwd) instead of the project's .veto/log.jsonl. */
   file?: string;
   /** Where errors go (default: out). */
   err?: (s: string) => void;
 }
 
-export function showLog(root: string, n: number, out: (s: string) => void, opts: ShowLogOptions = {}): number {
+/**
+ * Without --file, the log is the one in the nearest .veto folder at or above `cwd` (like git
+ * finds .git), so `veto log` works from any subfolder of the project.
+ */
+export function showLog(cwd: string, n: number, out: (s: string) => void, opts: ShowLogOptions = {}): number {
   let path: string;
   if (opts.file !== undefined) {
-    path = resolve(root, opts.file);
+    path = resolve(cwd, opts.file);
     if (!existsSync(path) || !statSync(path).isFile()) {
       (opts.err ?? out)(`no log file at ${path}`);
       return 1;
     }
   } else {
+    const root = findVetoRoot(cwd);
+    if (root === null) {
+      out(`No Veto log found in ${resolve(cwd)} or any folder above it. Run \`veto log\` inside a project where you ran \`veto init\`, or use --file <log.jsonl>.`);
+      return 0;
+    }
     path = join(root, VETO_DIR, LOG_FILE);
     if (!existsSync(path)) {
-      out(`No log yet at ${path}. Run \`veto init\` here, then use Claude Code in this folder.`);
+      out(`No log yet at ${path}. Use Claude Code in ${root} and its tool calls will show up here.`);
       return 0;
     }
   }
@@ -188,7 +207,7 @@ export function showLog(root: string, n: number, out: (s: string) => void, opts:
   const pool = opts.flagged ? entries.filter(isFlagged) : entries;
   const shown = pool.slice(-n);
   if (shown.length === 0) out(opts.flagged ? "(no flagged entries)" : "(log is empty)");
-  for (const e of shown) out(formatEntry(e));
+  for (const e of shown) out(formatEntry(e, { verbose: opts.verbose }));
   const of = opts.flagged ? `${pool.length} flagged (${entries.length} total)` : `${entries.length}`;
   out(`-- ${shown.length} of ${of} entries from ${path}${malformed ? ` (${malformed} malformed lines skipped)` : ""}`);
   return 0;

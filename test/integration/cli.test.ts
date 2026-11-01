@@ -246,10 +246,38 @@ describe("veto log", () => {
     expect(one.stdout.trim().split("\n")).toHaveLength(2);
   });
 
-  it("no log yet: friendly message, exit 0", async () => {
-    const r = await runCli(["log"], { cwd: tempProject() });
+  it("no Veto folder here or above: says so, without telling you to init here (exit 0)", async () => {
+    const dir = tempProject();
+    const r = await runCli(["log"], { cwd: dir });
     expect(r.code).toBe(0);
-    expect(r.stdout).toContain("No log yet");
+    expect(r.stdout).toBe(`No Veto log found in ${dir} or any folder above it. Run \`veto log\` inside a project where you ran \`veto init\`, or use --file <log.jsonl>.\n`);
+    // From a home directory with no .veto: the same message (it used to say "Run `veto init` here").
+    const home = tempProject("veto-home-");
+    expect((await runCli(["log"], { cwd: home, env: { HOME: home } })).stdout).not.toMatch(/init` here/);
+  });
+
+  it("a .veto folder without a log yet: friendly message, exit 0", async () => {
+    const root = tempProject();
+    mkdirSync(join(root, ".veto"));
+    const r = await runCli(["log"], { cwd: root });
+    expect(r.code).toBe(0);
+    expect(r.stdout).toContain(`No log yet at ${join(root, ".veto", "log.jsonl")}`);
+  });
+
+  it("finds the nearest .veto folder above the current directory, like git", async () => {
+    const root = tempProject();
+    const bash = loadFixtures().find((f) => f.name === "07-PreToolUse-Bash.json")!;
+    await runCli(["hook"], { cwd: root, stdin: bash.raw.replaceAll("/REDACTED_PROJECT", root), env: { CLAUDE_PROJECT_DIR: root } });
+    const deep = join(root, "src", "lib");
+    mkdirSync(deep, { recursive: true });
+    const r = await runCli(["log"], { cwd: deep });
+    expect(r.code).toBe(0);
+    expect(r.stdout).toContain("git status");
+    expect(r.stdout.trim().split("\n").at(-1)).toBe(`-- 1 of 1 entries from ${join(root, ".veto", "log.jsonl")}`);
+    // a nested project with its own .veto wins over the outer one
+    const inner = join(root, "src");
+    mkdirSync(join(inner, ".veto"));
+    expect((await runCli(["log"], { cwd: deep })).stdout).toContain(`No log yet at ${join(inner, ".veto", "log.jsonl")}`);
   });
 
   it("bad -n: exit 1", async () => {
@@ -281,6 +309,13 @@ describe("veto log", () => {
     expect(flagged.code).toBe(0);
     expect(flagged.stdout).toContain("rm -- ~/veto-test-junk/fake1.txt");
     expect(flagged.stdout).toContain("⚑ medium: rm deletes a file in your home directory (~/veto-test-junk/fake1.txt). (+1 more)");
+
+    // --verbose: every finding on its own line, no "(+1 more)"
+    const verbose = await runCli(["log", "--file", saved, "--flagged", "--verbose"], { cwd: other });
+    expect(verbose.code).toBe(0);
+    expect(verbose.stdout).not.toContain("(+1 more)");
+    expect(verbose.stdout).toContain("\n      medium destructive/delete-outside-project: rm deletes a file in your home directory (~/veto-test-junk/fake1.txt).\n");
+    expect(verbose.stdout).toContain("\n      medium destructive/delete-outside-project: rm deletes a file in your home directory (~/veto-test-junk/fake2.txt).\n");
   });
 
   it("--file errors: missing file or a directory exit 1; --file without a path is a usage error", async () => {
