@@ -1,11 +1,12 @@
 #!/usr/bin/env node
 // Measures `veto hook` wall-clock latency (spawn -> exit, includes Node startup) over the REAL
 // captured fixtures in test/fixtures/real/, cycling through all of them.
-// Usage: node scripts/bench-hook.mjs [--runs N] [--cli path/to/cli.js] [--only-pre] [--bash | --non-bash]
+// Usage: node scripts/bench-hook.mjs [--runs N] [--cli path/to/cli.js] [--only-pre] [--bash | --non-bash] [--guard]
 //   --only-pre   only PreToolUse fixtures (the events Veto analyzes)
 //   --bash       only fixtures whose tool_name is Bash; --non-bash: everything else
+//   --guard      run with .veto/config.json {"mode":"guard"} (default: no config = watch mode)
 import { spawn } from "node:child_process";
-import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { loadavg, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -21,6 +22,7 @@ const cli = resolve(opt("--cli", join(repo, "dist", "cli.js")));
 const onlyPre = args.includes("--only-pre");
 const bashOnly = args.includes("--bash");
 const nonBash = args.includes("--non-bash");
+const guard = args.includes("--guard");
 
 const dir = join(repo, "test", "fixtures", "real");
 const fixtures = readdirSync(dir)
@@ -37,6 +39,10 @@ const fixtures = readdirSync(dir)
 if (fixtures.length === 0) throw new Error("no fixtures match the filters");
 
 const root = mkdtempSync(join(tmpdir(), "veto-bench-"));
+if (guard) {
+  mkdirSync(join(root, ".veto"), { mode: 0o700 });
+  writeFileSync(join(root, ".veto", "config.json"), JSON.stringify({ mode: "guard" }));
+}
 const once = (raw) =>
   new Promise((res, rej) => {
     const t0 = process.hrtime.bigint();
@@ -61,6 +67,6 @@ rmSync(root, { recursive: true, force: true });
 ms.sort((a, b) => a - b);
 const q = (p) => ms[Math.min(ms.length - 1, Math.floor(p * ms.length))];
 console.log(
-  `veto hook: ${runs} runs over ${fixtures.length} real fixtures${onlyPre ? " (PreToolUse)" : ""}${bashOnly ? " [Bash]" : nonBash ? " [non-Bash]" : ""}, ${process.version}, load ${loadavg()[0].toFixed(1)}: ` +
+  `veto hook: ${runs} runs over ${fixtures.length} real fixtures${onlyPre ? " (PreToolUse)" : ""}${bashOnly ? " [Bash]" : nonBash ? " [non-Bash]" : ""}${guard ? " guard" : " watch"}, ${process.version}, load ${loadavg()[0].toFixed(1)}: ` +
     `p50=${q(0.5).toFixed(1)}ms p95=${q(0.95).toFixed(1)}ms max=${ms.at(-1).toFixed(1)}ms`,
 );
