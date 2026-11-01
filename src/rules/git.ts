@@ -111,3 +111,22 @@ export function stashSaves(args: Arg[]): StashSave | null {
 
 /** `git stash drop` / `git stash clear`. */
 export const isStashDelete = (g: GitCall) => g.sub === "stash" && !g.args[0]?.unresolved && (g.args[0]?.value === "drop" || g.args[0]?.value === "clear");
+
+/** push options that take a separate value word. */
+const PUSH_VALUE_OPTS = new Set(["--repo", "-o", "--push-option", "--receive-pack", "--exec"]);
+
+/** The words after `git push`: options (values skipped) and operands (remote, then refspecs). */
+export function pushArgs(args: Arg[]): { options: string[]; operands: Arg[] } {
+  const options: string[] = [];
+  const operands: Arg[] = [];
+  let end = false;
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i]!;
+    if (!end && a.value === "--" && !a.unresolved) end = true;
+    else if (!end && !a.unresolved && a.value.startsWith("-") && a.value.length > 1) {
+      options.push(a.value);
+      if (PUSH_VALUE_OPTS.has(a.value)) i++;
+    } else operands.push(a);
+  }
+  return { options, operands };
+}

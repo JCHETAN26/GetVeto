@@ -1,14 +1,11 @@
 // git push that can overwrite remote history: --force / -f / +refspec, --force-with-lease,
 // --mirror. High for main/master or when no branch is named; lease to another branch is low.
-import type { Arg } from "../../shell/parse.js";
 import { unparsedNestedMatching } from "../args.js";
-import { gitCall } from "../git.js";
+import { gitCall, pushArgs } from "../git.js";
 import { lower, type Finding, type Rule, type Severity } from "../types.js";
 
 const ID = "destructive/force-push";
 const PROTECTED = new Set(["main", "master"]);
-/** push options that take a separate value word. */
-const VALUE_OPTS = new Set(["--repo", "-o", "--push-option", "--receive-pack", "--exec"]);
 
 const TIP = {
   shared: "Push to a new branch and open a pull request instead of force-pushing.",
@@ -31,17 +28,7 @@ export const forcePush: Rule = {
     for (const c of ctx.commands) {
       const g = gitCall(c, ctx);
       if (!g || g.sub !== "push") continue;
-      const options: string[] = [];
-      const operands: Arg[] = [];
-      let end = false;
-      for (let i = 0; i < g.args.length; i++) {
-        const a = g.args[i]!;
-        if (!end && a.value === "--" && !a.unresolved) end = true;
-        else if (!end && !a.unresolved && a.value.startsWith("-") && a.value.length > 1) {
-          options.push(a.value);
-          if (VALUE_OPTS.has(a.value)) i++;
-        } else operands.push(a);
-      }
+      const { options, operands } = pushArgs(g.args);
       const has = (name: string) => options.some((o) => o === name || o.startsWith(name + "="));
       const shortF = options.some((o) => /^-[^-]/.test(o) && o.includes("f"));
       const refspecs = operands.slice(1);
