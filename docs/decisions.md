@@ -164,8 +164,8 @@ so it stays as it is.
   so the process never exits. The 2 s stdin guard no longer works. Reproduced: still running after 6 s, killed. With the
   stream it exits after 2.08 s. Fail-open (CLAUDE.md rule 3) wins.
 - Node flags in the hook command: `--v8-pool-size=0` +0.9 ms, `--jitless` +5 ms, `--max-semi-space-size=1` +5.6 ms,
-  `--single-threaded` +5.6 ms. All slower, probably because a changed V8 flag set doesn't match the compile cache.
-  **Rejected.**
+  `--single-threaded` +5.6 ms. All slower. It isn't a cache miss: Node keeps a separate compile-cache directory per V8
+  flag set, and the warm-up filled it. The cause wasn't investigated further. **Rejected.**
 
 **Costs of each option**
 - **(a) bundle:** adds an `esbuild` devDependency, pinned to 0.28.2 (the version vitest already had installed). `unbash`
