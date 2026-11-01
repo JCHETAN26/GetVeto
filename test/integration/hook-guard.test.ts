@@ -43,6 +43,36 @@ describe("veto hook in guard mode (real fixtures)", () => {
     expect(line).toMatchObject({ verdict: "allow", mode: "guard", decision: "allowed" });
   });
 
+  describe("the real 23:20 'undo my last commit and throw away my changes' events, in a dirty repo", () => {
+    // Only cwd is changed (the redacted one doesn't exist); the commands are verbatim.
+    function dirtyRepo(): string {
+      const root = project({ mode: "guard" });
+      const git = (...a: string[]) => execFileSync("git", ["-C", root, "-c", "user.name=t", "-c", "user.email=t@example.invalid", ...a], { stdio: "ignore" });
+      git("init", "-q");
+      writeFileSync(join(root, "a.txt"), "one\n");
+      git("add", "a.txt");
+      git("commit", "-q", "-m", "init");
+      writeFileSync(join(root, "a.txt"), "two\n");
+      return root;
+    }
+    const inRepo = (name: string, root: string) => JSON.stringify({ ...byName(name).event, cwd: root });
+
+    it("23:20:11 git diff > patch && git reset --hard (19-PreToolUse-Bash.json) -> still denied", async () => {
+      const root = dirtyRepo();
+      const { stdout, line } = await hook(inRepo("19-PreToolUse-Bash.json", root), root);
+      expect(decision(stdout).permissionDecision).toBe("deny");
+      expect(line).toMatchObject({ verdict: "flag", decision: "denied" });
+    });
+
+    it("23:20:23 git stash push ... && git reset --hard (20-PreToolUse-Bash.json) -> no decision (was denied)", async () => {
+      const root = dirtyRepo();
+      const { stdout, line } = await hook(inRepo("20-PreToolUse-Bash.json", root), root);
+      expect(stdout).toBe("");
+      expect(line).toMatchObject({ verdict: "flag", mode: "guard", decision: "allowed" });
+      expect((line.findings as { severity: string }[]).map((f) => f.severity)).toEqual(["low"]);
+    });
+  });
+
   it("the real 19:53:36 home-folder rm (17-PreToolUse-Bash.json) -> ask (medium)", async () => {
     const root = project({ mode: "guard" });
     const { stdout, line } = await hook(placed(byName("17-PreToolUse-Bash.json").raw, root), root);

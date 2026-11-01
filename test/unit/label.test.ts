@@ -29,10 +29,11 @@ describe("loadCandidates on real fixtures", () => {
     expect(cands.map((c) => c.toolName)).toEqual(pre.map((f) => f.event.tool_name));
   });
 
-  it("outcome: 'ran' when a PostToolUse shares the tool_use_id, 'no-post' for the real denied call", () => {
-    const denied = byName("15-PreToolUse-Bash");
+  it("outcome: 'ran' when a PostToolUse shares the tool_use_id, 'no-post' for the real denied calls", () => {
+    // 15: denied at the permission prompt; 19, 20: denied by guard mode (captured without a post).
+    const denied = new Set(["15-PreToolUse-Bash", "19-PreToolUse-Bash", "20-PreToolUse-Bash"].map((n) => byName(n).tool_use_id));
     for (const c of cands) {
-      expect(c.outcome).toBe(c.event.tool_use_id === denied.tool_use_id ? "no-post" : "ran");
+      expect(c.outcome).toBe(denied.has(c.event.tool_use_id) ? "no-post" : "ran");
     }
   });
 

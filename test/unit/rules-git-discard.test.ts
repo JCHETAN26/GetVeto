@@ -103,4 +103,66 @@ describe("destructive/git-discard", () => {
     expect(s(`bash -c "sh -c 'dash -c \\"zsh -c \\\\\\"git reset --hard\\\\\\"\\"'"`)).toBe("medium");
     expect(s("bash -c 'git reset --hard'")).toBe("medium"); // parsed: the inner command matches
   });
+
+  describe("a full git stash earlier in the same command", () => {
+    const dirty = () => ({ gitStatus: () => ({ tracked: true, untracked: true }) });
+    const f = (command: string) => runBash(gitDiscard, command, dirty());
+
+    it("git stash && / ; git reset --hard: low, says the changes are stashed first", () => {
+      for (const c of ["git stash && git reset --hard HEAD~1", "git stash; git reset --hard", "git stash push -m wip && git reset --hard", "git stash save wip && git reset --hard", "git stash -q && git checkout -- .", "git stash push --keep-index && git restore ."]) {
+        expect(sev(f(c)), c).toBe("low");
+      }
+      expect(f("git stash && git reset --hard")[0]).toEqual({
+        ruleId: "destructive/git-discard",
+        category: "destructive",
+        severity: "low",
+        reason: "git reset --hard runs after git stash in the same command, so the uncommitted changes are stashed first (git stash pop restores them).",
+      });
+    });
+
+    it("not when the stash may not have run or saved everything", () => {
+      for (const c of [
+        "git stash || git reset --hard", // reset runs only if the stash failed
+        "git reset --hard && git stash", // stash comes after
+        "git stash | cat && git reset --hard",
+        "! git stash && git reset --hard",
+        "x || git stash && git reset --hard", // the stash may be skipped
+        "git stash -p && git reset --hard", // partial
+        "git stash push src/ && git reset --hard", // pathspec: partial
+        "git stash push -- src/ && git reset --hard",
+        "git stash --staged && git reset --hard",
+        "git stash list && git reset --hard",
+        "git stash && git stash pop && git reset --hard", // the changes are back
+        "git stash && git reset --hard && git stash drop", // stash then destroy
+        "git stash && cd ../other && git reset --hard", // a different work tree
+        "git -C ../other stash && git reset --hard",
+      ]) {
+        expect(sev(f(c)), c).toBe("high");
+      }
+      // unknown directory: no git check (medium), and no downgrade either
+      expect(sev(f("cd $D && git stash && git reset --hard"))).toBe("medium");
+    });
+
+    it("pop after the reset is fine (moving changes onto an earlier commit)", () => {
+      expect(sev(f("git stash && git reset --hard HEAD~1 && git stash pop"))).toBe("low");
+    });
+
+    it("git clean: a plain stash doesn't save untracked files; -u does, and -x needs -a", () => {
+      expect(sev(f("git stash && git clean -fd"))).toBe("high");
+      expect(f("git stash && git clean -fd")[0]!.reason).toBe("git clean -d would discard untracked files in this work tree. git stash ran first, but without -u it doesn't save them.");
+      expect(f("git stash && git clean -fd")[0]!.suggestion).toMatch(/git stash -u/);
+      expect(sev(f("git stash -u && git clean -fd"))).toBe("low");
+      expect(sev(f("git stash --include-untracked && git clean -fd"))).toBe("low");
+      expect(sev(f("git stash -u && git clean -fdx"))).toBe("high");
+      expect(sev(f("git stash --all && git clean -fdx"))).toBe("low");
+      expect(sev(f("git stash -u && git reset --hard && git clean -fd"))).toBe("low");
+    });
+
+    it("with real git: a dirty repo is high without the stash, low with it", () => {
+      const d = repo("dirty");
+      const opts = { cwd: d, root: d, gitStatus: readGitStatus };
+      expect(sev(runBash(gitDiscard, "git reset --hard", opts))).toBe("high");
+      expect(sev(runBash(gitDiscard, "git stash && git reset --hard", opts))).toBe("low");
+    });
+  });
 });

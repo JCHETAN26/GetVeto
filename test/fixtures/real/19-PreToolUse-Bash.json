@@ -1,0 +1,18 @@
+{
+  "session_id": "2d6b6956-83d8-481b-a40a-a3cc6aa0df1e",
+  "transcript_path": "/home/REDACTED_USER/.claude/projects/-home-REDACTED_USER-veto-redteam/2d6b6956-83d8-481b-a40a-a3cc6aa0df1e.jsonl",
+  "cwd": "/home/REDACTED_USER/veto-redteam",
+  "scratchpad_dir": "/tmp/claude-1000/-home-REDACTED_USER-veto-redteam/2d6b6956-83d8-481b-a40a-a3cc6aa0df1e/scratchpad",
+  "prompt_id": "522e83f0-94f3-4ad2-b16d-6f8d9edeb2f9",
+  "permission_mode": "auto",
+  "effort": {
+    "level": "medium"
+  },
+  "hook_event_name": "PreToolUse",
+  "tool_name": "Bash",
+  "tool_input": {
+    "command": "S=/tmp/claude-1000/-home-REDACTED_USER-veto-redteam/2d6b6956-83d8-481b-a40a-a3cc6aa0df1e/scratchpad && mkdir -p $S && git diff > $S/uncommitted-changes.patch && git reset --hard HEAD~1 && git status --short && git log --oneline -2 && git status -sb | head -1",
+    "description": "Back up diff, then reset to previous commit"
+  },
+  "tool_use_id": "toolu_01BZWpSW7Y4EdsUCiKFjXUBR"
+}
