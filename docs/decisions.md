@@ -61,3 +61,35 @@ Use `unbash`, pinned to the exact version `6.0.2` (no `^` or `~`):
 - **Compile cache:** `module.enableCompileCache()` (Node ≥ 22.1) saved only about 2 ms and writes a
   cache directory to disk, so it is not enabled.
 - **Scope:** unbash parses Bash only. PowerShell tool calls need a separate decision.
+
+## D2. Rule engine startup cost (watch mode)
+
+**Date:** 2026-10-31. **Status:** in place.
+
+Wiring the engine into `veto hook` first added about 20 ms to Bash events and 9 ms to every other
+PreToolUse event. Measured with `scripts/bench-hook.mjs`, 300 runs, interleaved with a build of
+the pre-engine commit (0383cf4) at the same machine load (load average 2.4–4.8):
+
+| | Bash p50 / p95 | non-Bash p50 / p95 |
+|---|---|---|
+| before the engine (0383cf4) | 25.4 / 26.6–27.7 ms | 25.4 / 26.6–29.4 ms |
+| engine, everything loaded up front | 45.4–45.9 / 48.0–51.2 ms | 33.9–34.0 / 36.8–37.4 ms |
+| **engine, lazy per tool + parse prefilter** | **32.6–32.7 / 45.3–45.8 ms** | **29.7–30.0 / 30.8–31.6 ms** |
+
+The parse prefilter has no effect on p95: the slowest commands are the ones that need the parser.
+
+What made the difference:
+- **Category modules load per tool.** Bash loads destructive (plus the placeholders), the file tools
+  load file-tools, and Glob, Grep and the rest load no rule module at all.
+- **`child_process` is required only when a git check runs.** That's about 3 ms otherwise.
+- **Parse prefilter.** Each Bash rule declares `triggers`, the program names it can match. When
+  none of them appears as a word in the command (after removing backslash-newlines, backslashes
+  and quotes, as bash does when it forms a word), the ~14 ms parser import is skipped. `$'...'`
+  always parses. A unit test checks that skipping never changes the findings.
+
+Commands that do need the parser (e.g. `git status`) still pay the unbash import, so they land
+around 45 ms, close to the 50 ms p95 target on a loaded machine.
+
+**Not enabled, for the founder to decide:** Node's compile cache (`NODE_COMPILE_CACHE` or
+`module.enableCompileCache()`). On the same benchmark it took Bash p50 from 45.0 to 41.0 ms and
+p95 from 48.3 to 42.2–45.2 ms. It writes about 200 KB of cache to disk, which D1 chose not to do.
