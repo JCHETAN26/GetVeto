@@ -3,7 +3,7 @@
 // Contract (see docs/hooks-research.md):
 //   - Read one JSON object from stdin.
 //   - Append {"ts", "event"} as one line to <project>/.veto/log.jsonl.
-//   - "Allow" in observe-only mode = exit 0 with EMPTY stdout (no decision; Claude Code's
+//   - "Allow" (watch mode, or nothing to act on) = exit 0 with EMPTY stdout (no decision; Claude Code's
 //     normal permission flow applies). We never print permissionDecision:"allow", which
 //     would auto-approve the call.
 //   - Fail open: any error is written to .veto/errors.log (or stderr as last resort) and we
