@@ -59,7 +59,7 @@ Use `unbash`, pinned to the exact version `6.0.2` (no `^` or `~`):
   Write and the other events don't pay the import cost.
 - **Errors:** treat `errors` on the returned tree as "analysis incomplete", never as a crash.
 - **Compile cache:** `module.enableCompileCache()` (Node ≥ 22.1) saved only about 2 ms and writes a
-  cache directory to disk, so it is not enabled.
+  cache directory to disk, so it is not enabled. *(Superseded by D3: with the code in one bundle it is enabled.)*
 - **Scope:** unbash parses Bash only. PowerShell tool calls need a separate decision.
 
 ## D2. Rule engine startup cost (watch mode)
@@ -93,3 +93,126 @@ around 45 ms, close to the 50 ms p95 target on a loaded machine.
 **Not enabled, for the founder to decide:** Node's compile cache (`NODE_COMPILE_CACHE` or
 `module.enableCompileCache()`). On the same benchmark it took Bash p50 from 45.0 to 41.0 ms and
 p95 from 48.3 to 42.2–45.2 ms. It writes about 200 KB of cache to disk, which D1 chose not to do.
+**Update (D3):** enabled now, after bundling: ~50 KB per Node version and Veto build in `~/.cache/getveto`.
+
+## D3. Hook startup speed: one CommonJS bundle plus Node's compile cache
+
+**Date:** 2026-11-01. **Status:** in place. **Goal (Task #5):** Bash p95 at or under 35 ms on the founder's machine,
+with no verdict changes.
+
+Machine for every number below: the founder's Linux box, 16 cores, `powersave` governor, Node v22.14.0 unless noted.
+The load average stayed between 2.5 and 4.2 throughout, because other processes (containers, a JVM) kept bursting CPU.
+Absolute numbers therefore move by several ms from run to run. Every comparison here comes from one **interleaved** run,
+where the builds take turns call by call, so they all see the same load. `scripts/bench-hook.mjs` does this now when
+given several `--cli`.
+
+### 1. Profile: where a Bash hook call spent its time (Task #4 build, tsc ESM output)
+
+Spawn-to-exit wall time, interleaved, 80 runs each, load 3.2 → 2.7:
+
+| process | p50 | p95 |
+|---|---|---|
+| `node -e ''` (Node startup alone) | 17.3 | 19.6 |
+| a CommonJS script that reads stdin and exits | 20.4 | 22.5 |
+| `veto hook`, Read event | 32.5 | 37.1 |
+| `veto hook`, Bash `ls` (prefilter skips the parser) | 36.2 | 43.0 |
+| `veto hook`, Bash `git status` (parser loaded) | 48.2 | 61.1 |
+| `veto hook`, Bash `git reset --hard` with uncommitted changes (parser + `git status` check) | 56.2 | 62.9 |
+
+Inside one process: medians over 40 fresh processes, each step timed with `performance.now()`, Bash `git status` /
+`git reset --hard` events:
+
+| step | ms |
+|---|---|
+| Node bootstrap until the first line of our code | ~17 |
+| ESM loader itself (empty `.mjs` vs empty `.cjs`, spawn p50) | ~3.8 |
+| reading stdin through `process.stdin` (loads Node's stream and net modules) | ~3 |
+| import `hook.js` + config, decide, storage, truncate | 4.2 |
+| import `engine.js` | 0.9 |
+| import the destructive rule modules (9 files) | 5.7 |
+| import `unbash` | 9.0 |
+| import `shell/parse.js` | 2.0 |
+| evaluate, including the first (cold) parse | 4.0 |
+| … plus the `git status` child process (discard commands only) | +8 |
+| loadConfig / decide / formatLogLine / log append | 0.35 / 0.2 / 0.45 / 0.3 |
+
+Module loading (≈22 ms on a parser event) was the largest cost we could remove. Rule execution, config and log I/O
+together were under 2 ms, and sync fs calls were not a measurable cost. The `git status` check costs ~8 ms but only
+runs for work-discarding git commands. A cheaper call would change what it reports (e.g. skipping untracked files),
+so it stays as it is.
+
+### 2. Options measured
+
+**Builds**, interleaved, 80 runs each, load 3.2 → 2.7, p50 / p95 ms (`cc` = Node's compile cache):
+
+| build | Read | Bash `ls` | Bash `git status` | Bash `git reset --hard` |
+|---|---|---|---|---|
+| tsc ESM, many files (before) | 32.5 / 37.1 | 36.2 / 43.0 | 48.2 / 61.1 | 56.2 / 62.9 |
+| (b) tsc ESM + cc (separate run: 48.9 → 45.1 p50 on `git status`) | | | | |
+| (c) V8 startup snapshot of hook + engine + rules + unbash | 30.6 / 34.7 | 31.1 / 36.1 | 33.3 / 37.6 | 40.9 / 44.0 |
+| (a) esbuild ESM bundle, code-split per lazy import | 33.2 / 35.4 | 33.4 / 36.3 | 40.4 / 45.2 | 48.2 / 53.9 |
+| (a+b) ESM split bundle + cc | 32.7 / 36.8 | 32.8 / 38.3 | 37.1 / 40.5 | 45.0 / 53.3 |
+| (a) esbuild CommonJS, one file | 29.1 / 33.1 | 29.9 / 32.7 | 33.2 / 35.5 | 40.4 / 44.9 |
+| **(a+b) CommonJS one file + cc** | **25.8 / 27.7** | **26.1 / 29.6** | **29.3 / 32.7** | **37.4 / 41.9** |
+
+**Cheap wins (d)**, each measured interleaved against the build before it (150 runs, load 2.4–3.2):
+- `performance.now()` → `process.hrtime.bigint()`: using the `performance` global loads Node's perf_hooks modules.
+  p50 −0.4 to −0.9 ms on all four events. **Taken.**
+- Minifying whitespace and syntax (identifiers kept): 360 KB → 230 KB, p50 −0.9 to −1.0 ms on all four. **Taken.**
+- Reading stdin with `fs.read` on fd 0 instead of `process.stdin`: −2.6 ms in isolation. **Rejected: it can hang.** When
+  stdin is never closed, the read blocks in a libuv thread-pool thread, and at `process.exit()` libuv joins that thread,
+  so the process never exits. The 2 s stdin guard no longer works. Reproduced: still running after 6 s, killed. With the
+  stream it exits after 2.08 s. Fail-open (CLAUDE.md rule 3) wins.
+- Node flags in the hook command: `--v8-pool-size=0` +0.9 ms, `--jitless` +5 ms, `--max-semi-space-size=1` +5.6 ms,
+  `--single-threaded` +5.6 ms. All slower, probably because a changed V8 flag set doesn't match the compile cache.
+  **Rejected.**
+
+**Costs of each option**
+- **(a) bundle:** adds an `esbuild` devDependency, pinned to 0.28.2 (the version vitest already had installed). `unbash`
+  becomes a devDependency because it is compiled into `dist/veto.js`, and its ISC license ships in
+  `dist/THIRD_PARTY_LICENSES.txt`. `npm install -g` now installs no runtime dependencies. Stack traces in
+  `.veto/errors.log` point into one minified file, but function names are kept. The tsc output moves to `build/`, used
+  only by tooling (eval, bench-parse, capture-fixtures, redteam-stats). `dist/cli.js` stays the entry path (with
+  `dist/package.json` `{"type":"commonjs"}`), so existing hook commands and `veto init` keep working unchanged.
+- **(b) compile cache** (revisits D1/D2): one ~50 KB file per (Node version, Veto build) in `$XDG_CACHE_HOME/getveto` or
+  `~/.cache/getveto`. That is the only write outside `.veto/`, and `VETO_NO_COMPILE_CACHE=1` turns it off. Node ≥ 22.1
+  only: Node 20 has no `module.enableCompileCache` and runs without it. Old entries are not pruned automatically, so
+  each upgrade leaves ~50 KB behind. Node validates each entry against the source and V8 flags and recompiles on any
+  mismatch, and a corrupted entry is ignored (tested). D2 rejected the cache when it saved ~4 ms for 200 KB across
+  many files. With one bundle it saves 3–4 ms more for a quarter of the size, and it is what brings Bash p95 under
+  35 ms, so it is now on.
+- **(c) startup snapshot:** a 6.2 MB blob per Node version, built on the user's machine because it is tied to the exact
+  Node binary. The hook command would need `--snapshot-blob` (every user re-runs `veto init`). Node warns that
+  `node:module` "is not yet fully verified" in snapshots. It is also slower than (a+b): deserializing the blob costs more
+  than loading a cached 230 KB bundle. **Rejected.**
+- **Background daemon:** not built (out of scope), and **not needed**. The floor is Node's own startup, ~17 ms (~20 ms
+  with stdin), and the hook now runs about 5 ms above it on Bash. A daemon only pays off if the per-call client is not
+  Node (a native binary or a shell client talking to a socket), because a Node client pays that floor anyway. Revisit
+  only if rules ever need warm state that is expensive to build.
+
+### 3. Result: before (Task #4, 91de286) vs after, real fixtures (`bench-hook.mjs --only-pre`), interleaved, 200 runs
+
+| | before p50 / p95 | after p50 / p95 | load |
+|---|---|---|---|
+| Bash, watch | 37.6 / 50.6 | **25.4 / 29.7** | 3.6 |
+| Bash, guard | 37.3 / 50.6 | **25.4 / 29.5** | 3.5 |
+| non-Bash, watch | 33.2 / 36.7 | **24.5 / 27.0** | 3.4 |
+| non-Bash, guard | 33.3 / 36.2 | **24.6 / 27.2** | 3.1 |
+| Bash, no compile cache (first call after install/upgrade, or `VETO_NO_COMPILE_CACHE=1`) | 37.3 / 50.4 | 28.6 / 33.5 | 2.9 |
+| non-Bash, no compile cache | 33.3 / 37.1 | 27.5 / 29.4 | 3.1 |
+| Node 20.20.2, Bash (no compile cache on Node 20) | 43.5 / 57.3 | 34.3 / 40.0 | 3.2 |
+| Node 20.20.2, non-Bash | 39.2 / 44.6 | 33.3 / 37.5 | 3.7 |
+
+Two Bash watch runs hit CPU bursts from other processes. Both builds suffered and the ratio held: before 38.0 / 111.1
+vs after 25.9 / 73.9 at load 3.8, and before 38.7 / 124.7 vs after 26.6 / 77.3 at load 3.2. The repeat at load 3.6 in
+the table was clean.
+
+**Target met on Node 22:** Bash p95 29.5–29.7 ms (≤ 35 ms) in clean runs. **Not met on Node 20:** p95 40 ms. Node 20
+has no compile cache, and it reached end-of-life on 2026-04-30. Closing that gap would mean hand-rolling a V8 code cache
+(`vm.Script` `cachedData`), which isn't worth it for an EOL runtime.
+
+**No behavior change:** `npm run eval` output was diffed before vs after over the real fixtures, `~/veto-sandbox`, and
+both saved red-team logs (48 PreToolUse events), with the timing line excluded: identical. A CLI-level replay ran 64
+cases through `dist/cli.js hook` (every real fixture plus 13 dangerous and benign commands in watch and guard mode,
+plus invalid JSON) comparing stdout, exit code and the logged verdict/findings/decision: identical on Node 22 and on
+Node 20.
