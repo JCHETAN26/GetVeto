@@ -4,6 +4,7 @@
 import { forEachChild, parse } from "unbash";
 import type { Command, Redirection, SyntaxNode, Word, WordPart } from "unbash";
 import { homedir } from "node:os";
+import { isAbsolute, resolve } from "node:path";
 
 export interface Redirect {
   /** Operator as written: ">", ">>", "<", "2>&1"-style ">&", "<<", "<<<", ... */
@@ -64,6 +65,11 @@ export interface SimpleCommand {
   wrappers: string[];
   /** True when it sits inside $(...), `...` or <(...). */
   inSubstitution: boolean;
+  /**
+   * Directory this command runs in, following cd / pushd / popd earlier in the same shell.
+   * null = unknown (no starting cwd given, `cd $DIR`, `cd -`, a cd inside an if/loop body, ...).
+   */
+  cwd: string | null;
   /** Source text of this command. */
   text: string;
 }
@@ -77,8 +83,27 @@ interface State {
   oldpwd: string | null;
   /** Variables reassigned in the script (HOME=..., export PWD=...): no longer known. */
   reassigned: Set<string>;
+  /** pushd/popd stack, top first; null once it's unknown. */
+  dirStack: (string | null)[] | null;
 }
-const cloneState = (s: State): State => ({ ...s, reassigned: new Set(s.reassigned) });
+const cloneState = (s: State): State => ({
+  ...s,
+  reassigned: new Set(s.reassigned),
+  dirStack: s.dirStack && [...s.dirStack],
+});
+
+/**
+ * Walk a branch that may or may not run (if/while/for/case bodies). Directory changes inside
+ * it make the directory afterwards unknown, unless every path leaves it unchanged.
+ */
+function maybeRuns(st: State, run: (branch: State) => void): void {
+  const b = cloneState(st);
+  run(b);
+  if (b.cwd !== st.cwd) st.cwd = null;
+  if (b.oldpwd !== st.oldpwd) st.oldpwd = null;
+  if (JSON.stringify(b.dirStack) !== JSON.stringify(st.dirStack)) st.dirStack = null;
+  for (const n of b.reassigned) st.reassigned.add(n);
+}
 const KNOWN_VARS = new Set(["HOME", "PWD", "OLDPWD"]);
 
 interface Ctx {
@@ -123,7 +148,13 @@ export function parseCommand(command: string, opts: ParseOptions = {}): ParseRes
     const errs = ast.errors ?? [];
     if (errs.length > 0) return { parseError: errs.map((e) => `${e.message} (at ${e.pos})`).join("; ") };
     const out: SimpleCommand[] = [];
-    const st: State = { home: opts.home ?? homedir(), cwd: opts.cwd ?? null, oldpwd: opts.oldpwd ?? null, reassigned: new Set() };
+    const st: State = {
+      home: opts.home ?? homedir(),
+      cwd: opts.cwd ? resolve(opts.cwd) : null,
+      oldpwd: opts.oldpwd ?? null,
+      reassigned: new Set(),
+      dirStack: [],
+    };
     walk(ast, { inPipeline: false, inSubstitution: false, timed: false, extraRedirects: [] }, st, command, out);
     return { commands: out };
   } catch (e) {
@@ -136,9 +167,30 @@ function walk(node: SyntaxNode, ctx: Ctx, st: State, src: string, out: SimpleCom
     case "Pipeline": {
       const timed = ctx.timed || node.prefixes.some((p) => p.type === "Time");
       const inPipeline = ctx.inPipeline || node.commands.length > 1;
-      for (const c of node.commands) walk(c, { ...ctx, timed, inPipeline }, st, src, out);
+      // Each stage of a real pipeline runs in its own subshell: a cd there doesn't leak.
+      for (const c of node.commands) walk(c, { ...ctx, timed, inPipeline }, inPipeline ? cloneState(st) : st, src, out);
       return;
     }
+    case "Statement":
+      // `cmd &` runs in the background, in a subshell.
+      walk(node.command, ctx, node.background ? cloneState(st) : st, src, out);
+      return;
+    case "Subshell":
+      walk(node.body, ctx, cloneState(st), src, out);
+      return;
+    case "Function":
+      // Defining a function runs nothing; analyze the body on a throwaway state.
+      forEachChild(node, (ch) => walk(ch, ctx, cloneState(st), src, out));
+      return;
+    case "If":
+    case "While":
+    case "For":
+    case "Select":
+    case "ArithmeticFor":
+    case "Case":
+    case "Coproc":
+      maybeRuns(st, (b) => forEachChild(node, (ch) => walk(ch, ctx, b, src, out)));
+      return;
     case "Redirected": {
       const extra = [...ctx.extraRedirects, ...node.redirects.map((r) => toRedirect(r, st))];
       for (const r of node.redirects) forEachChild(r, (ch) => walk(ch, ctx, cloneState(st), src, out));
@@ -290,6 +342,9 @@ function simple(node: Command, ctx: Ctx, st: State, src: string): SimpleCommand 
     if (a.startsWith("-") && a !== "-") flags.push(a);
   }
   const program = rest[0]?.value ?? null;
+  const cwd = st.cwd;
+  // Builtins that change directory only work unwrapped (or via `command`).
+  if (program !== null && wrappers.every((w) => w === "command")) changeDir(program, argWords, st);
 
   // Reassigning a variable we expand makes it unknown from here on.
   if (program === null) for (const n of assignments) if (KNOWN_VARS.has(n)) st.reassigned.add(n);
@@ -311,6 +366,64 @@ function simple(node: Command, ctx: Ctx, st: State, src: string): SimpleCommand 
     inPipeline: ctx.inPipeline,
     wrappers,
     inSubstitution: ctx.inSubstitution,
+    cwd,
     text: src.slice(node.pos, node.end),
   };
+}
+
+/** Where `cd <target>` lands; null if it can't be known statically. */
+function cdTarget(target: Arg | undefined, st: State): string | null {
+  if (!target) return st.reassigned.has("HOME") ? null : st.home; // bare `cd` -> home
+  if (target.unresolved || target.value === "-") return null; // `cd -` -> unknown
+  if (isAbsolute(target.value)) return resolve(target.value);
+  return st.cwd === null ? null : resolve(st.cwd, target.value);
+}
+
+/** Apply cd / pushd / popd to the state. CDPATH is not consulted. */
+function changeDir(program: string, args: Arg[], st: State): void {
+  if (program !== "cd" && program !== "pushd" && program !== "popd") return;
+  let k = 0;
+  let noChdir = false;
+  while (k < args.length && /^-[LPe@n]+$/.test(args[k]!.value)) {
+    if (args[k]!.value.includes("n") && program !== "cd") noChdir = true;
+    k++;
+  }
+  if (args[k]?.value === "--") k++;
+  const target = args[k];
+  const go = (to: string | null) => {
+    st.oldpwd = st.cwd;
+    st.cwd = to;
+  };
+
+  if (program === "cd") return go(cdTarget(target, st));
+
+  if (target && /^[+-]\d+$/.test(target.value)) {
+    // pushd/popd +N / -N rotate or drop stack entries: we don't model that.
+    if (!noChdir) go(null);
+    st.dirStack = null;
+    return;
+  }
+  if (program === "pushd") {
+    if (!target) {
+      // swap the top two directories
+      if (!st.dirStack || st.dirStack.length === 0) return go(null);
+      const top = st.dirStack[0]!;
+      st.dirStack[0] = st.cwd;
+      return go(top);
+    }
+    const to = cdTarget(target, st);
+    if (noChdir) {
+      st.dirStack?.unshift(to);
+      return;
+    }
+    st.dirStack?.unshift(st.cwd);
+    return go(to);
+  }
+  // popd
+  if (!st.dirStack || st.dirStack.length === 0) return go(null);
+  if (noChdir) {
+    st.dirStack.shift();
+    return;
+  }
+  go(st.dirStack.shift()!);
 }

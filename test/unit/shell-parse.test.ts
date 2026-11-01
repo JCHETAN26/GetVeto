@@ -269,3 +269,91 @@ describe("variables, ~, globs and brace expansion", () => {
     expect(one("HOME=/x echo $HOME").args).toEqual(["/home/alice"]);
   });
 });
+
+describe("directory tracking: cd / pushd / popd", () => {
+  const opts = { cwd: "/home/alice/app", home: "/home/alice" };
+  const cwds = (c: string, o: object = opts) => {
+    const r = parseCommand(c, o);
+    if ("parseError" in r) throw new Error(r.parseError);
+    return r.commands.map((x) => [x.program, x.cwd]);
+  };
+
+  it("cd src && ls / cd .. && git status", () => {
+    expect(cwds("cd src && ls")).toEqual([["cd", "/home/alice/app"], ["ls", "/home/alice/app/src"]]);
+    expect(cwds("cd .. && git status")).toEqual([["cd", "/home/alice/app"], ["git", "/home/alice"]]);
+    expect(cwds("cd packages/web; npm test; cd ../api && npm test")).toEqual([
+      ["cd", "/home/alice/app"],
+      ["npm", "/home/alice/app/packages/web"],
+      ["cd", "/home/alice/app/packages/web"],
+      ["npm", "/home/alice/app/packages/api"],
+    ]);
+  });
+
+  it("absolute, ~, bare cd (home), $HOME, and -- / -P options", () => {
+    expect(cwds("cd /var/log && ls")[1]).toEqual(["ls", "/var/log"]);
+    expect(cwds("cd ~/notes && ls")[1]).toEqual(["ls", "/home/alice/notes"]);
+    expect(cwds("cd && ls")[1]).toEqual(["ls", "/home/alice"]);
+    expect(cwds("cd $HOME/x && ls")[1]).toEqual(["ls", "/home/alice/x"]);
+    expect(cwds("cd -P -- build && ls")[1]).toEqual(["ls", "/home/alice/app/build"]);
+  });
+
+  it("unknown targets: variables, cd -, substitutions", () => {
+    expect(cwds("cd $DIR && ls")[1]).toEqual(["ls", null]);
+    expect(cwds("cd - && ls")[1]).toEqual(["ls", null]);
+    expect(cwds('cd "$(git rev-parse --show-toplevel)" && npm test')[2]).toEqual(["npm", null]);
+    // an absolute cd after an unknown one is known again
+    expect(cwds("cd $DIR; cd /tmp; ls")[2]).toEqual(["ls", "/tmp"]);
+    // a relative cd after an unknown one stays unknown
+    expect(cwds("cd $DIR; cd src; ls")[2]).toEqual(["ls", null]);
+  });
+
+  it("subshells, pipeline stages, substitutions and background jobs don't leak their cd", () => {
+    expect(cwds("(cd src && ls) && pwd")).toEqual([
+      ["cd", "/home/alice/app"],
+      ["ls", "/home/alice/app/src"],
+      ["pwd", "/home/alice/app"],
+    ]);
+    expect(cwds("cd src | cat; ls").at(-1)).toEqual(["ls", "/home/alice/app"]);
+    expect(cwds("echo $(cd /tmp && pwd); ls").at(-1)).toEqual(["ls", "/home/alice/app"]);
+    expect(cwds("cd /tmp & ls").at(-1)).toEqual(["ls", "/home/alice/app"]);
+  });
+
+  it("brace groups share the shell, so their cd does persist", () => {
+    expect(cwds("{ cd src; }; ls").at(-1)).toEqual(["ls", "/home/alice/app/src"]);
+  });
+
+  it("a cd inside if/for bodies makes the cwd afterwards unknown", () => {
+    expect(cwds("if [ -d src ]; then cd src; fi; ls").at(-1)).toEqual(["ls", null]);
+    expect(cwds("for d in a b; do cd $d; done; ls").at(-1)).toEqual(["ls", null]);
+    // ...but a body without cd leaves it known
+    expect(cwds("if true; then npm test; fi; ls").at(-1)).toEqual(["ls", "/home/alice/app"]);
+    // commands inside the body see the body's cwd
+    expect(cwds("if true; then cd src; ls; fi")).toContainEqual(["ls", "/home/alice/app/src"]);
+  });
+
+  it("pushd / popd", () => {
+    expect(cwds("pushd src && npm test && popd && ls")).toEqual([
+      ["pushd", "/home/alice/app"],
+      ["npm", "/home/alice/app/src"],
+      ["popd", "/home/alice/app/src"],
+      ["ls", "/home/alice/app"],
+    ]);
+    expect(cwds("popd; ls").at(-1)).toEqual(["ls", null]); // empty stack: unknown
+    expect(cwds("pushd +1; ls").at(-1)).toEqual(["ls", null]);
+  });
+
+  it("$PWD / $OLDPWD follow cd", () => {
+    const r = parseCommand("cd src && ls $PWD $OLDPWD", opts) as { commands: SimpleCommand[] };
+    expect(r.commands[1]!.args).toEqual(["/home/alice/app/src", "/home/alice/app"]);
+  });
+
+  it("without a starting cwd, relative cds stay unknown and absolute ones are known", () => {
+    expect(cwds("cd src && ls", {})).toEqual([["cd", null], ["ls", null]]);
+    expect(cwds("cd /srv/app && ls", {})[1]).toEqual(["ls", "/srv/app"]);
+  });
+
+  it("`sudo cd` doesn't change the shell's directory; `command cd` does", () => {
+    expect(cwds("sudo cd /root; ls").at(-1)).toEqual(["ls", "/home/alice/app"]);
+    expect(cwds("command cd src; ls").at(-1)).toEqual(["ls", "/home/alice/app/src"]);
+  });
+});
