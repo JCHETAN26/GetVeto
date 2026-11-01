@@ -216,3 +216,34 @@ both saved red-team logs (48 PreToolUse events), with the timing line excluded: 
 cases through `dist/cli.js hook` (every real fixture plus 13 dangerous and benign commands in watch and guard mode,
 plus invalid JSON) comparing stdout, exit code and the logged verdict/findings/decision: identical on Node 22 and on
 Node 20.
+
+## D4. Following Veto's own advice, and overrides (Task #6, 2026-11-01)
+
+**Problem (guard-mode test, 2026-10-31 23:20).** Veto denied `git reset --hard` and advised "Run `git stash` first".
+Claude did exactly that in one command (`git stash push -m ... && git reset --hard HEAD~1`) and was denied again,
+because `git status` runs before the chain does. The user had no way to let a call through either.
+
+**Decisions.**
+- *Order inside one command.* The parser records, per command, which earlier commands have certainly run
+  (`ranBefore`: earlier `&&` steps; the first step of earlier `;`/newline statements; nothing across `||`, pipes,
+  `!`, `&`, subshells or if/loop bodies). git-discard drops to **low** when a full stash of the same work tree ran
+  first. `;` is accepted as the task asked, though a failed stash would not stop the reset there; `||` is not. A plain
+  stash doesn't save untracked files, so `git clean -d` needs `-u` and `-x` needs `-a`. A partial stash (`-p`,
+  `--staged`, pathspecs), a `stash pop` in between, or a `stash drop`/`clear` anywhere keeps the old severity.
+- *`veto allow --once` matches findings, not command text.* It covers the next call whose blocking findings are all
+  among the most recent denial's (rule id + reason, which names the target). Claude's retry is rarely byte-identical
+  (it adds `&& git log`), so a text match would fail; a finding match still blocks anything that trips a new finding.
+  10 minutes, one use, one project (the file lives in that project's `.veto/` and records its root).
+- *Used up only when it changes the decision*, claimed by deleting `.veto/override.json`. `unlink` succeeds for one
+  process only, so two hook calls running in parallel can't both use it.
+- *Still never "allow".* An override removes findings; the call then gets no decision and Claude Code's own
+  permission flow applies, as in watch mode.
+- *Errors while reading an override keep the decision as it was* (logged to errors.log). This is the one place a Veto
+  error doesn't mean "no decision": a broken override file must not turn a deny into a pass.
+- *The agent can't grant itself an override.* New category `self-protection`: `veto allow`, `veto mode watch` and
+  `veto uninstall` run through Bash, and Write/Edit/redirects into `.veto/`, are high. Not covered: scripts or other
+  programs editing `.veto/` or `.claude/settings*.json` (README, "What Veto does not cover").
+
+**Latency.** Same as before on Node 22.14 (interleaved, 200 runs, the pre-task build 82331ea vs this one, current
+fixtures): Bash p95 33.7 vs 33.7 ms watch, 34.1 vs 34.4 ms guard; non-Bash 25.4 vs 25.3 ms. Absolute numbers are higher
+than D3's 29.7 ms because new fixture 19 spawns a real `git status` (both builds pay it).
