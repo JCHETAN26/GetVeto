@@ -6,67 +6,17 @@
 import { basename, sep } from "node:path";
 import type { Arg, SimpleCommand } from "../../shell/parse.js";
 import { resolvePath } from "../../shell/paths.js";
+import { hasOpt, optValues, RSYNC, SCP, walkOptions, type OptionSpec, type Walked } from "../args.js";
 import { gitCall } from "../git.js";
 import { secretLooking } from "../secret-paths.js";
 import type { Finding, Rule, RuleContext } from "../types.js";
 
 const ID = "secret-access/shell-read";
 
-interface Spec {
-  /** Short options that take a value (in the same word, -n5, or the next one, -n 5). */
-  short: string;
-  /** Long options that take the next word as their value (when written without "="). */
-  long: string[];
-}
 
-interface Walked {
-  /** Options seen, with their values ("-e" -> "PORT"). */
-  opts: { name: string; value?: Arg }[];
-  operands: Arg[];
-}
-
-/** Split words into options (with values) and operands, given which options take values. */
-function walk(words: Arg[], spec: Spec): Walked {
-  const out: Walked = { opts: [], operands: [] };
-  let end = false;
-  for (let i = 0; i < words.length; i++) {
-    const w = words[i]!;
-    const v = w.value;
-    if (end || w.unresolved || v === "-" || !v.startsWith("-")) {
-      out.operands.push(w);
-      continue;
-    }
-    if (v === "--") {
-      end = true;
-      continue;
-    }
-    if (v.startsWith("--")) {
-      const eq = v.indexOf("=");
-      if (eq >= 0) out.opts.push({ name: v.slice(0, eq), value: { ...w, value: v.slice(eq + 1) } });
-      else if (spec.long.includes(v)) out.opts.push({ name: v, value: words[++i] });
-      else out.opts.push({ name: v });
-      continue;
-    }
-    for (let k = 1; k < v.length; k++) {
-      const ch = v[k]!;
-      if (!spec.short.includes(ch)) {
-        out.opts.push({ name: `-${ch}` });
-        continue;
-      }
-      const rest = v.slice(k + 1);
-      out.opts.push({ name: `-${ch}`, value: rest ? { ...w, value: rest } : words[++i] });
-      break;
-    }
-  }
-  return out;
-}
-
-const has = (w: Walked, ...names: string[]) => w.opts.some((o) => names.includes(o.name));
-const values = (w: Walked, ...names: string[]) => w.opts.filter((o) => names.includes(o.name) && o.value).map((o) => o.value!);
-
-const NO_VALUES: Spec = { short: "", long: [] };
+const NO_VALUES: OptionSpec = { short: "", long: [] };
 /** Every operand is a file whose contents are printed. */
-const READERS: Record<string, Spec> = {
+const READERS: Record<string, OptionSpec> = {
   cat: NO_VALUES,
   head: { short: "nc", long: ["--lines", "--bytes"] },
   tail: { short: "ncs", long: ["--lines", "--bytes", "--pid", "--sleep-interval", "--max-unchanged-stats"] },
@@ -79,18 +29,16 @@ const READERS: Record<string, Spec> = {
 };
 READERS.batcat = READERS.bat!;
 
-const GREP: Spec = { short: "efmABCdD", long: ["--regexp", "--file", "--max-count", "--after-context", "--before-context", "--context", "--include", "--exclude", "--exclude-dir", "--exclude-from", "--label", "--devices", "--directories", "--binary-files"] };
-const RG: Spec = { short: "efmABCgtTjMrE", long: ["--regexp", "--file", "--max-count", "--after-context", "--before-context", "--context", "--glob", "--iglob", "--type", "--type-not", "--threads", "--max-columns", "--replace", "--encoding", "--ignore-file", "--pre", "--sort", "--sortr", "--max-depth", "--max-filesize", "--colors", "--path-separator"] };
-const SED: Spec = { short: "efl", long: ["--expression", "--file", "--line-length"] };
-const AWK: Spec = { short: "fvF", long: ["--file", "--assign", "--field-separator"] };
-const CP: Spec = { short: "tS", long: ["--target-directory", "--suffix"] };
-const SCP: Spec = { short: "cDFiJloPSX", long: [] };
-const RSYNC: Spec = { short: "efTBM", long: ["--rsh", "--filter", "--exclude", "--include", "--exclude-from", "--include-from", "--files-from", "--temp-dir", "--partial-dir", "--backup-dir", "--compare-dest", "--copy-dest", "--link-dest", "--chmod", "--suffix", "--log-file", "--out-format", "--rsync-path", "--timeout", "--password-file"] };
+const GREP: OptionSpec = { short: "efmABCdD", long: ["--regexp", "--file", "--max-count", "--after-context", "--before-context", "--context", "--include", "--exclude", "--exclude-dir", "--exclude-from", "--label", "--devices", "--directories", "--binary-files"] };
+const RG: OptionSpec = { short: "efmABCgtTjMrE", long: ["--regexp", "--file", "--max-count", "--after-context", "--before-context", "--context", "--glob", "--iglob", "--type", "--type-not", "--threads", "--max-columns", "--replace", "--encoding", "--ignore-file", "--pre", "--sort", "--sortr", "--max-depth", "--max-filesize", "--colors", "--path-separator"] };
+const SED: OptionSpec = { short: "efl", long: ["--expression", "--file", "--line-length"] };
+const AWK: OptionSpec = { short: "fvF", long: ["--file", "--assign", "--field-separator"] };
+const CP: OptionSpec = { short: "tS", long: ["--target-directory", "--suffix"] };
 
 /** Files a pattern tool reads: with -e/-f every operand is a file; otherwise the first is the pattern/script. */
 function afterScript(w: Walked, scriptOpts: string[], fileOpts: string[]): Arg[] {
-  const files = values(w, ...fileOpts);
-  return has(w, ...scriptOpts, ...fileOpts) ? [...files, ...w.operands] : w.operands.slice(1);
+  const files = optValues(w, ...fileOpts);
+  return hasOpt(w, ...scriptOpts, ...fileOpts) ? [...files, ...w.operands] : w.operands.slice(1);
 }
 
 /** The words of `c` naming files whose contents it reads, and the verb for the reason. */
@@ -99,19 +47,19 @@ function readTargets(c: SimpleCommand): { verb: string; args: Arg[] } | null {
   const prog = basename(c.program);
   const words = c.argWords;
   const reader = READERS[prog];
-  if (reader) return { verb: `${prog} reads`, args: walk(words, reader).operands };
-  if (prog === "xxd") return { verb: "xxd reads", args: walk(words, { short: "lscgo", long: [] }).operands.slice(0, 1) };
-  if (prog === "grep" || prog === "egrep" || prog === "fgrep") return { verb: `${prog} reads`, args: afterScript(walk(words, GREP), ["-e", "--regexp"], ["-f", "--file"]) };
-  if (prog === "rg") return { verb: "rg reads", args: afterScript(walk(words, RG), ["-e", "--regexp"], ["-f", "--file"]) };
-  if (prog === "sed") return { verb: "sed reads", args: afterScript(walk(words, SED), ["-e", "--expression"], ["-f", "--file"]) };
+  if (reader) return { verb: `${prog} reads`, args: walkOptions(words, reader).operands };
+  if (prog === "xxd") return { verb: "xxd reads", args: walkOptions(words, { short: "lscgo", long: [] }).operands.slice(0, 1) };
+  if (prog === "grep" || prog === "egrep" || prog === "fgrep") return { verb: `${prog} reads`, args: afterScript(walkOptions(words, GREP), ["-e", "--regexp"], ["-f", "--file"]) };
+  if (prog === "rg") return { verb: "rg reads", args: afterScript(walkOptions(words, RG), ["-e", "--regexp"], ["-f", "--file"]) };
+  if (prog === "sed") return { verb: "sed reads", args: afterScript(walkOptions(words, SED), ["-e", "--expression"], ["-f", "--file"]) };
   if (prog === "awk" || prog === "gawk" || prog === "mawk") {
     // var=value operands are assignments, not files.
-    const files = afterScript(walk(words, AWK), [], ["-f", "--file"]).filter((a) => !/^[A-Za-z_][A-Za-z0-9_]*=/.test(a.value));
+    const files = afterScript(walkOptions(words, AWK), [], ["-f", "--file"]).filter((a) => !/^[A-Za-z_][A-Za-z0-9_]*=/.test(a.value));
     return { verb: `${prog} reads`, args: files };
   }
   if (prog === "cp" || prog === "scp" || prog === "rsync") {
-    const w = walk(words, prog === "cp" ? CP : prog === "scp" ? SCP : RSYNC);
-    const sources = prog === "cp" && has(w, "-t", "--target-directory") ? w.operands : w.operands.slice(0, -1);
+    const w = walkOptions(words, prog === "cp" ? CP : prog === "scp" ? SCP : RSYNC);
+    const sources = prog === "cp" && hasOpt(w, "-t", "--target-directory") ? w.operands : w.operands.slice(0, -1);
     return { verb: `${prog} copies`, args: sources };
   }
   return null;

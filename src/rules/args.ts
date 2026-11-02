@@ -94,3 +94,61 @@ export function unparsedNestedMatching(ctx: RuleContext, re: RegExp): SimpleComm
 
 /** Arguments arrive on stdin (xargs), so the real operands aren't known. */
 export const operandsFromStdin = (c: SimpleCommand) => c.wrappers.includes("xargs");
+
+// Option walking for rules that need to know which options take a value word.
+
+export interface OptionSpec {
+  /** Short options that take a value (in the same word, -n5, or the next one, -n 5). */
+  short: string;
+  /** Long options that take the next word as their value (when written without "="). */
+  long: string[];
+}
+
+export interface Walked {
+  /** Options seen, with their values ("-e" -> "PORT"). */
+  opts: { name: string; value?: Arg }[];
+  operands: Arg[];
+}
+
+/** Split words into options (with values) and operands, given which options take values. */
+export function walkOptions(words: Arg[], spec: OptionSpec): Walked {
+  const out: Walked = { opts: [], operands: [] };
+  let end = false;
+  for (let i = 0; i < words.length; i++) {
+    const w = words[i]!;
+    const v = w.value;
+    if (end || w.unresolved || v === "-" || !v.startsWith("-")) {
+      out.operands.push(w);
+      continue;
+    }
+    if (v === "--") {
+      end = true;
+      continue;
+    }
+    if (v.startsWith("--")) {
+      const eq = v.indexOf("=");
+      if (eq >= 0) out.opts.push({ name: v.slice(0, eq), value: { ...w, value: v.slice(eq + 1) } });
+      else if (spec.long.includes(v)) out.opts.push({ name: v, value: words[++i] });
+      else out.opts.push({ name: v });
+      continue;
+    }
+    for (let k = 1; k < v.length; k++) {
+      const ch = v[k]!;
+      if (!spec.short.includes(ch)) {
+        out.opts.push({ name: `-${ch}` });
+        continue;
+      }
+      const rest = v.slice(k + 1);
+      out.opts.push({ name: `-${ch}`, value: rest ? { ...w, value: rest } : words[++i] });
+      break;
+    }
+  }
+  return out;
+}
+
+export const hasOpt = (w: Walked, ...names: string[]) => w.opts.some((o) => names.includes(o.name));
+export const optValues = (w: Walked, ...names: string[]) => w.opts.filter((o) => names.includes(o.name) && o.value).map((o) => o.value!);
+
+/** Options of scp and rsync that take a value word (used to find source and destination operands). */
+export const SCP: OptionSpec = { short: "cDFiJloPSX", long: [] };
+export const RSYNC: OptionSpec = { short: "efTBM", long: ["--rsh", "--filter", "--exclude", "--include", "--exclude-from", "--include-from", "--files-from", "--temp-dir", "--partial-dir", "--backup-dir", "--compare-dest", "--copy-dest", "--link-dest", "--chmod", "--suffix", "--log-file", "--out-format", "--rsync-path", "--timeout", "--password-file"] };
