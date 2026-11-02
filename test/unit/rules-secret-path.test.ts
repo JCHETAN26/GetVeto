@@ -25,6 +25,11 @@ describe("file-tools/secret-path", () => {
     expect(s("Read", `${ROOT}/docs/monkey.md`)).toBeNull();
   });
 
+  it("credential files: ~/.aws/credentials, ~/.npmrc, ~/.netrc, *credentials*.json", () => {
+    for (const p of ["/home/alice/.aws/credentials", "/home/alice/.npmrc", "/home/alice/.netrc", `${ROOT}/config/credentials.json`, `${ROOT}/gcp-credentials.json`]) expect(s("Read", p), p).toBe("medium");
+    for (const p of [`${ROOT}/.npmrc`, "/home/alice/.aws/config", `${ROOT}/docs/credentials.md`]) expect(s("Read", p), p).toBeNull();
+  });
+
   it("applies to Read, Write and Edit; not to other tools", () => {
     expect(s("Write", `${ROOT}/.env`)).toBe("medium");
     expect(s("Edit", `${ROOT}/.env`)).toBe("medium");
