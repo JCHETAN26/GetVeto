@@ -73,6 +73,19 @@ describe("veto hook in guard mode (real fixtures)", () => {
     });
   });
 
+  it("the real 16:56:09 git show HEAD -- config/credentials.json (21-PreToolUse-Bash.json) -> ask (medium; was allowed)", async () => {
+    const root = project({ mode: "guard" });
+    const { stdout, line } = await hook(byName("21-PreToolUse-Bash.json").raw, root);
+    const out = decision(stdout);
+    expect(out.permissionDecision).toBe("ask");
+    expect(out.permissionDecisionReason).toBe(
+      "Veto: asking the user to confirm this call. " +
+        "[secret-access/shell-read] git show prints a credentials JSON file from git history, which may hold secrets: config/credentials.json. " +
+        "Safer: Ask the user for the specific value you need instead of reading the file.",
+    );
+    expect(line).toMatchObject({ verdict: "flag", mode: "guard", decision: "asked" });
+  });
+
   it("the real 19:53:36 home-folder rm (17-PreToolUse-Bash.json) -> ask (medium)", async () => {
     const root = project({ mode: "guard" });
     const { stdout, line } = await hook(placed(byName("17-PreToolUse-Bash.json").raw, root), root);

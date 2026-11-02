@@ -20,5 +20,12 @@
       "destructive/git-discard"
     ],
     "why": "Real guard-mode session 2026-10-31 23:20:23 (local): git stash push -m ... && git reset --hard HEAD~1. Was denied (high) because git status ran before the stash; the changes are stashed first, so it is now low (guard mode logs it, doesn't block)."
+  },
+  "21-PreToolUse-Bash.json": {
+    "verdict": "flag",
+    "ruleIds": [
+      "secret-access/shell-read"
+    ],
+    "why": "Real guard-mode session 2026-11-01 16:56:09 (local): git diff && git show HEAD -- config/credentials.json | sed ... The sed only masks some keys; git show still prints the committed credentials file. Was allowed (no secret-access rules); now medium (ask in guard mode)."
   }
 }

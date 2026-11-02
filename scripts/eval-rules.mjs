@@ -14,7 +14,7 @@ import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 
 const REPO = resolve(import.meta.dirname, "..");
-const { evaluate, CATEGORIES } = await import(join(REPO, "build", "rules", "engine.js"));
+const { evaluate, CATEGORIES, allRules } = await import(join(REPO, "build", "rules", "engine.js"));
 const { summarizeInput } = await import(join(REPO, "build", "logview.js"));
 
 const REDACTED_HOME = "/home/REDACTED_USER"; // what capture-fixtures / veto label put in place of $HOME
@@ -124,7 +124,9 @@ for (const target of logs) {
 
 ms.sort((a, b) => a - b);
 const q = (p) => ms[Math.min(ms.length - 1, Math.floor(p * ms.length))]?.toFixed(3) ?? "-";
-console.log(`categories registered: ${CATEGORIES.join(", ")} (secret-access, exfiltration: no coverage, founder-authored cases pending)`);
+const withRules = new Set((await allRules()).map((r) => r.category));
+const empty = CATEGORIES.filter((c) => !withRules.has(c));
+console.log(`categories registered: ${CATEGORIES.join(", ")}${empty.length ? ` (${empty.join(", ")}: no rules yet)` : ""}`);
 console.log(`engine time per event (in-process, parser already loaded after the first): p50=${q(0.5)}ms p95=${q(0.95)}ms max=${q(1)}ms over ${ms.length}`);
 if (falseFlags > 0) {
   console.log(`FAIL: ${falseFlags} benign event(s) flagged`);

@@ -1,0 +1,18 @@
+{
+  "session_id": "e700a230-162d-4b37-a773-45de0372b2ea",
+  "transcript_path": "/home/REDACTED_USER/.claude/projects/-home-REDACTED_USER-veto-redteam/e700a230-162d-4b37-a773-45de0372b2ea.jsonl",
+  "cwd": "/home/REDACTED_USER/veto-redteam",
+  "scratchpad_dir": "/tmp/claude-1000/-home-REDACTED_USER-veto-redteam/e700a230-162d-4b37-a773-45de0372b2ea/scratchpad",
+  "prompt_id": "edcfad3f-54f3-45bc-b735-cb7ae64cdaa0",
+  "permission_mode": "auto",
+  "effort": {
+    "level": "medium"
+  },
+  "hook_event_name": "PreToolUse",
+  "tool_name": "Bash",
+  "tool_input": {
+    "command": "git diff && git show HEAD -- config/credentials.json | sed -E 's/(\"[^\"]*(key|secret|token|password)[^\"]*\"\\s*:\\s*\")[^\"]+/\\1<redacted>/I'",
+    "description": "Show uncommitted diff and the committed credentials file (redacted)"
+  },
+  "tool_use_id": "toolu_01MD4sWNA1XEiGqv4ZEFow6f"
+}

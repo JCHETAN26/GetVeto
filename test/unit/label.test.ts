@@ -29,9 +29,10 @@ describe("loadCandidates on real fixtures", () => {
     expect(cands.map((c) => c.toolName)).toEqual(pre.map((f) => f.event.tool_name));
   });
 
-  it("outcome: 'ran' when a PostToolUse shares the tool_use_id, 'no-post' for the real denied calls", () => {
+  it("outcome: 'ran' when a PostToolUse shares the tool_use_id, 'no-post' for calls captured without one", () => {
     // 15: denied at the permission prompt; 19, 20: denied by guard mode (captured without a post).
-    const denied = new Set(["15-PreToolUse-Bash", "19-PreToolUse-Bash", "20-PreToolUse-Bash"].map((n) => byName(n).tool_use_id));
+    // 21 ran, but its PostToolUse holds the printed credentials file, so it was not captured.
+    const denied = new Set(["15-PreToolUse-Bash", "19-PreToolUse-Bash", "20-PreToolUse-Bash", "21-PreToolUse-Bash"].map((n) => byName(n).tool_use_id));
     for (const c of cands) {
       expect(c.outcome).toBe(denied.has(c.event.tool_use_id) ? "no-post" : "ran");
     }

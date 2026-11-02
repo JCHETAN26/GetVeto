@@ -16,15 +16,15 @@ const flagEcho: Rule = {
 };
 
 describe("rule engine", () => {
-  it("registers the category modules; secret-access and exfiltration are empty placeholders", async () => {
+  it("registers the category modules; exfiltration is an empty placeholder", async () => {
     expect(CATEGORIES).toEqual(["destructive", "file-tools", "secret-access", "exfiltration", "self-protection"]);
-    expect(secretAccess).toEqual([]);
+    expect(secretAccess.map((r) => r.id)).toEqual(["secret-access/shell-read"]);
     expect(exfiltration).toEqual([]);
-    expect((await allRules()).every((r) => r.category !== "secret-access" && r.category !== "exfiltration")).toBe(true);
+    expect((await allRules()).every((r) => r.category !== "exfiltration")).toBe(true);
   });
 
   it("loads only the categories that apply to the tool", async () => {
-    expect(new Set((await rulesFor("Bash")).map((r) => r.category))).toEqual(new Set(["destructive", "self-protection"]));
+    expect(new Set((await rulesFor("Bash")).map((r) => r.category))).toEqual(new Set(["destructive", "secret-access", "self-protection"]));
     expect(new Set((await rulesFor("Edit")).map((r) => r.category))).toEqual(new Set(["file-tools", "self-protection"]));
     expect(new Set((await rulesFor("Read")).map((r) => r.category))).toEqual(new Set(["file-tools"]));
     expect(await rulesFor("Glob")).toEqual([]);
@@ -105,11 +105,12 @@ describe("parse prefilter (triggers)", () => {
   it("skipping the parse never changes a verdict (same findings as checking every command)", async () => {
     const { allRules } = await import("../../src/rules/engine.js");
     const { parseCommand } = await import("../../src/shell/parse.js");
-    const rules = (await allRules()).filter((r) => r.category === "destructive");
+    const rules = (await allRules()).filter((r) => r.category === "destructive" || r.category === "secret-access");
     const commands = [
       "npm test", "ls -la", "cat notes.md", "rm -rf dist", "rm -rf ~", "r''m -rf ~", "\\rm -rf ~", '"rm" -rf src',
       "$'\\x72m' -rf ~", "git push -f origin main", "g\\it push -f origin main", "git reset --hard", "find ~ -delete",
       "chmod -R 777 ~", "sudo dd if=a.iso of=/dev/sdb", "mkfs.ext4 /dev/sdb1", "bash -c 'rm -rf ~'", "echo format",
+      "cat .env", "/bin/cat .env", "wc -l < .env", "c''at .env", "git show HEAD:.env",
     ];
     for (const command of commands) {
       const viaEngine = await evaluate(bash(command), { projectRoot: root, home: "/home/alice" });

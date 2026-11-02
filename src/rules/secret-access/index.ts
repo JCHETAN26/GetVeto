@@ -1,7 +1,7 @@
-// Secret access via the shell (e.g. a command that reads credential stores).
-// TODO(founder): these rules are founder-authored, together with their test cases. This module
-// is an intentional empty placeholder so the category is registered; it returns no findings.
-// (Secret-looking file paths on Read/Write/Edit are covered in file-tools/secret-path.ts.)
+// secret-access rules (Bash): shell commands that read secret-looking files or dump the
+// environment. Secret-looking paths on Read/Write/Edit are file-tools/secret-path; both use
+// the same list (../secret-paths.ts). One rule per file.
 import type { Rule } from "../types.js";
+import { shellRead } from "./shell-read.js";
 
-export const rules: Rule[] = [];
+export const rules: Rule[] = [shellRead];

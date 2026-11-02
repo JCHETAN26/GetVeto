@@ -23,12 +23,12 @@ interface CategoryModule {
   load(): Promise<readonly Rule[]>;
 }
 
-/** Registered category modules, in order. secret-access and exfiltration are empty placeholders. */
+/** Registered category modules, in order. exfiltration is an empty placeholder. */
 export const CATEGORY_MODULES: readonly CategoryModule[] = [
   { category: "destructive", tools: ["Bash"], load: async () => (await import("./destructive/index.js")).rules },
   { category: "file-tools", tools: FILE_TOOLS, load: async () => (await import("./file-tools/index.js")).rules },
-  // TODO(founder): widen `tools` when the founder-authored rules for these categories land.
   { category: "secret-access", tools: ["Bash"], load: async () => (await import("./secret-access/index.js")).rules },
+  // TODO(founder): exfiltration rules are founder-authored; widen `tools` when they land.
   { category: "exfiltration", tools: ["Bash"], load: async () => (await import("./exfiltration/index.js")).rules },
   { category: "self-protection", tools: ["Bash", "Write", "Edit", "MultiEdit", "NotebookEdit"], load: async () => (await import("./self-protection/index.js")).rules },
 ];
