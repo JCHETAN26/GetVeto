@@ -280,6 +280,21 @@ describe("veto log", () => {
     expect((await runCli(["log"], { cwd: deep })).stdout).toContain(`No log yet at ${join(inner, ".veto", "log.jsonl")}`);
   });
 
+  it("an entry with no event name prints that (not \"?  -\"); an unknown event prints its name", async () => {
+    const root = tempProject();
+    // What a hand-run `echo '{}' | veto hook` logs: the real hook path, real output.
+    await runCli(["hook"], { cwd: root, stdin: "{}", env: { CLAUDE_PROJECT_DIR: root } });
+    await runCli(["hook"], { cwd: root, stdin: '{"session_id":"s1","cwd":"/x"}', env: { CLAUDE_PROJECT_DIR: root } });
+    // A log line (not a hook payload) for an event name this version has no label for.
+    writeFileSync(join(root, ".veto", "log.jsonl"), '{"ts":"2026-11-01T06:45:43.000Z","event":{"hook_event_name":"SomeFutureEvent"}}\n', { flag: "a" });
+    const lines = (await runCli(["log"], { cwd: root })).stdout.trim().split("\n");
+    expect(lines[0]).toMatch(/^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d  \(no event name\)  empty payload \{\}$/);
+    expect(lines[1]).toMatch(/  \(no event name\)  fields: session_id, cwd$/);
+    expect(lines[1]).not.toContain("s1"); // names only, never values
+    expect(lines[2]).toMatch(/  SomeFutureEvent  -  /);
+    expect(lines.slice(0, 3).join("\n")).not.toMatch(/  \?  -/);
+  });
+
   it("bad -n: exit 1", async () => {
     expect((await runCli(["log", "-n", "zero"], { cwd: tempProject() })).code).toBe(1);
   });

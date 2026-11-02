@@ -112,7 +112,14 @@ export interface FormatOptions {
 export function formatEntry(entry: LogEntry, opts: FormatOptions = {}): string {
   if (entry.veto) return formatVeto(entry);
   const ev = entry.event;
-  const eventName = str(ev.hook_event_name) ?? "?";
+  const eventName = str(ev.hook_event_name);
+  if (eventName === undefined) {
+    // Not something Claude Code sends (every hook payload names its event), e.g. `echo '{}' | veto hook`
+    // run by hand. Say so, and list the field names (never values) so it can be traced.
+    const fields = Object.keys(ev);
+    return `${formatTime(entry.ts)}  (no event name)  ${fields.length ? `fields: ${oneLine(fields.join(", "), 80)}` : "empty payload {}"}`;
+  }
+  // Events without a short label (new or rare ones) print their own name.
   const label = EVENT_LABEL[eventName] ?? eventName;
   if (eventName === "UserPromptSubmit") {
     return `${formatTime(entry.ts)}  ${label}  ${"prompt".padEnd(10)}  ${oneLine(str(ev.prompt) ?? "")}`;
