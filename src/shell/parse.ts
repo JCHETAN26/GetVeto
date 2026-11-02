@@ -59,6 +59,11 @@ export interface SimpleCommand {
   /** True when the command is one stage of a multi-command pipeline (a | b). */
   inPipeline: boolean;
   /**
+   * Its position in the innermost multi-command pipeline: 0 for the first stage (or no
+   * pipeline), 1+ for a stage that reads the previous stage's output on stdin.
+   */
+  pipeStage: number;
+  /**
    * Wrappers it was reached through, outermost first: sudo, env, xargs, time, nohup, timeout,
    * nice, command, exec, stdbuf, ionice.
    */
@@ -132,6 +137,7 @@ const KNOWN_VARS = new Set(["HOME", "PWD", "OLDPWD"]);
 
 interface Ctx {
   inPipeline: boolean;
+  pipeStage: number;
   inSubstitution: boolean;
   timed: boolean;
   extraRedirects: Redirect[];
@@ -180,7 +186,7 @@ export function parseCommand(command: string, opts: ParseOptions = {}): ParseRes
       reassigned: new Set(),
       dirStack: [],
     };
-    walk(ast, { inPipeline: false, inSubstitution: false, timed: false, extraRedirects: [], depth: 0 }, st, command, out);
+    walk(ast, { inPipeline: false, pipeStage: 0, inSubstitution: false, timed: false, extraRedirects: [], depth: 0 }, st, command, out);
     return { commands: out };
   } catch (e) {
     return { parseError: `parser failure: ${(e as Error)?.message ?? String(e)}` };
@@ -193,7 +199,10 @@ function walk(node: SyntaxNode, ctx: Ctx, st: State, src: string, out: SimpleCom
       const timed = ctx.timed || node.prefixes.some((p) => p.type === "Time");
       const inPipeline = ctx.inPipeline || node.commands.length > 1;
       // Each stage of a real pipeline runs in its own subshell: a cd there doesn't leak.
-      for (const c of node.commands) walk(c, { ...ctx, timed, inPipeline }, inPipeline ? cloneState(st) : st, src, out);
+      const multi = node.commands.length > 1;
+      node.commands.forEach((c, i) =>
+        walk(c, { ...ctx, timed, inPipeline, pipeStage: multi ? i : ctx.pipeStage }, inPipeline ? cloneState(st) : st, src, out),
+      );
       return;
     }
     case "Script":
@@ -234,7 +243,7 @@ function walk(node: SyntaxNode, ctx: Ctx, st: State, src: string, out: SimpleCom
     case "ArithmeticCommandExpansion": {
       // Positions in a substitution's script index the outer source, except for escaped
       // backtick scripts, which carry their own decoded `source`.
-      const inner = { ...ctx, inSubstitution: true, inPipeline: false, timed: false, extraRedirects: [] };
+      const inner = { ...ctx, inSubstitution: true, inPipeline: false, pipeStage: 0, timed: false, extraRedirects: [] };
       if (node.script) walk(node.script, inner, cloneState(st), node.script.source ?? src, out);
       return;
     }
@@ -439,6 +448,7 @@ function simple(node: Command, ctx: Ctx, st: State, src: string): SimpleCommand 
     redirects,
     assignments,
     inPipeline: ctx.inPipeline,
+    pipeStage: ctx.pipeStage,
     wrappers,
     inSubstitution: ctx.inSubstitution,
     cwd,
@@ -543,7 +553,7 @@ function nested(cmd: SimpleCommand, ctx: Ctx, before: State, st: State, out: Sim
   const source = n.script.map((a) => a.value).join(" ");
   const ast = parse(source);
   if (ast.errors?.length) return skip(`nested parse error: ${ast.errors.map((e) => e.message).join("; ")}`);
-  const inner: Ctx = { inPipeline: false, inSubstitution: ctx.inSubstitution, timed: false, extraRedirects: [], depth: ctx.depth + 1 };
+  const inner: Ctx = { inPipeline: false, pipeStage: 0, inSubstitution: ctx.inSubstitution, timed: false, extraRedirects: [], depth: ctx.depth + 1 };
   const shell = n.sameShell ? st : { ...cloneState(before), dirStack: [] };
   walk(ast, inner, shell, source, out);
 }

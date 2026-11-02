@@ -159,6 +159,19 @@ describe("parseCommand on everyday dev commands", () => {
   });
 });
 
+describe("pipeStage", () => {
+  it("0 for the first stage or no pipeline; 1+ for stages reading the previous output", () => {
+    const stages = (c: string) => {
+      const r = parseCommand(c, { cwd: "/w", home: "/h" });
+      return "commands" in r ? r.commands.map((x) => [x.program, x.pipeStage]) : r;
+    };
+    expect(stages("npm test")).toEqual([["npm", 0]]);
+    expect(stages("git log --oneline | head -5 | wc -l")).toEqual([["git", 0], ["head", 1], ["wc", 2]]);
+    expect(stages("ls && cat a.txt | sort")).toEqual([["ls", 0], ["cat", 0], ["sort", 1]]);
+    expect(stages("echo $(git rev-parse HEAD) | tee out.txt")).toEqual([["echo", 0], ["git", 0], ["tee", 1]]);
+  });
+});
+
 describe("built module: lazy import has no side effects", () => {
   it("importing build/shell/parse.js (tsc output) prints nothing and works", () => {
     const mod = join(REPO, "build", "shell", "parse.js");
