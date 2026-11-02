@@ -1,31 +1,47 @@
 {
   "name": "getveto",
   "version": "0.1.0",
-  "description": "Veto: a local safety layer for AI coding agents. Your agent proposes. You veto.",
+  "description": "Veto is a local safety layer for Claude Code and other AI coding agents: it reviews each tool call against rules and, in guard mode, blocks the dangerous ones. Your agent proposes. You veto.",
+  "keywords": [
+    "claude-code",
+    "claude",
+    "hooks",
+    "ai-agents",
+    "ai-safety",
+    "agent-safety",
+    "guardrails",
+    "safety",
+    "security",
+    "pretooluse",
+    "llm",
+    "devtools",
+    "cli"
+  ],
+  "homepage": "https://github.com/JCHETAN26/GetVeto#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/JCHETAN26/GetVeto.git"
+  },
+  "bugs": {
+    "url": "https://github.com/JCHETAN26/GetVeto/issues"
+  },
   "license": "MIT",
   "type": "module",
   "bin": {
     "veto": "dist/cli.js"
   },
   "files": [
-    "dist/"
+    "dist/",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
   ],
   "engines": {
     "node": ">=22"
   },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/JCHETAN26/GetVeto.git"
-  },
-  "keywords": [
-    "claude-code",
-    "hooks",
-    "ai-agents",
-    "safety",
-    "security"
-  ],
   "scripts": {
     "build": "node ./node_modules/typescript/bin/tsc -p tsconfig.json && node scripts/bundle.mjs",
+    "prepublishOnly": "npm run build",
     "test": "npm run build && node ./node_modules/vitest/vitest.mjs run",
     "typecheck": "node ./node_modules/typescript/bin/tsc -p tsconfig.json --noEmit",
     "capture-fixtures": "node scripts/capture-fixtures.mjs",
