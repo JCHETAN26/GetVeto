@@ -213,6 +213,18 @@ export function containsVeto(settings: Record<string, unknown>, isVetoCli: VetoC
   return removeVetoHooks(settings, isVetoCli).changed;
 }
 
+/** The Veto PreToolUse handlers installed in a settings object (for `veto doctor`). */
+export function vetoHandlersIn(settings: Record<string, unknown>, isVetoCli: VetoCliPredicate = looksLikeVetoCliPath): CommandHandler[] {
+  const out: CommandHandler[] = [];
+  const hooks = isPlainObject(settings.hooks) ? settings.hooks : {};
+  const groups = Array.isArray(hooks.PreToolUse) ? hooks.PreToolUse : [];
+  for (const g of groups) {
+    const list = isPlainObject(g) && Array.isArray(g.hooks) ? g.hooks : [];
+    for (const h of list) if (isVetoHandler(h, isVetoCli) && isPlainObject(h)) out.push(h as CommandHandler);
+  }
+  return out;
+}
+
 export function serializeSettings(settings: Record<string, unknown>): string {
   return JSON.stringify(settings, null, 2) + "\n";
 }

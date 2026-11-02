@@ -16,6 +16,8 @@ Usage:
                          Show or set the mode. watch: flag in the log, never block.
                          guard: deny high-severity calls, ask you about medium ones.
   veto status            Mode, where the hook is installed, config path, last 5 flags.
+  veto doctor            Check this project's install: Node version, hook, config, log
+                         permissions. Prints a fix for anything wrong. Exit 1 if any.
   veto allow --once      Let the next call that matches the most recent denial go ahead,
                          once, within 10 minutes, in this project only.
   veto allow <ruleId>    Stop checking one rule in this project (adds it to disabledRules).
@@ -61,6 +63,11 @@ async function main(): Promise<number> {
       if (argv.length > 1) return usageError("status takes no options");
       const { showStatus } = await import("./status.js");
       return showStatus(process.cwd(), console.log);
+    }
+    case "doctor": {
+      if (argv.length > 1) return usageError("doctor takes no options");
+      const { runDoctor } = await import("./doctor.js");
+      return runDoctor(process.cwd(), console.log);
     }
     case "allow":
     case "deny": {
