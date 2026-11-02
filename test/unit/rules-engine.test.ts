@@ -95,6 +95,13 @@ describe("parse prefilter (triggers)", () => {
     for (const c of no) expect(mayMention(c, ["rm", "git", "mkfs"]), c).toBe(false);
   });
 
+  it("a punctuation trigger such as \"<\" matches anywhere in the command", async () => {
+    const { mayMention } = await import("../../src/rules/engine.js");
+    expect(mayMention("wc -l<notes.txt", ["<"])).toBe(true);
+    expect(mayMention("npm test", ["<", "cat"])).toBe(false);
+    expect(mayMention("cat notes.txt", ["<", "cat"])).toBe(true);
+  });
+
   it("skipping the parse never changes a verdict (same findings as checking every command)", async () => {
     const { allRules } = await import("../../src/rules/engine.js");
     const { parseCommand } = await import("../../src/shell/parse.js");

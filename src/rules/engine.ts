@@ -99,11 +99,16 @@ export function readGitStatus(dir: string): GitStatus | null {
  * Could `command` run a program named one of `words`? Conservative: removes what bash removes
  * while forming a word (backslash-newline, backslashes, quote characters) and looks for any of
  * them as a whole word. ANSI-C quoting ($'\x72m') can spell anything, so it always says yes.
+ * A trigger made only of punctuation (e.g. "<" for input redirection) matches anywhere.
  */
 export function mayMention(command: string, words: readonly string[]): boolean {
   if (command.includes("$'")) return true;
   const plain = command.replace(/\\\n/g, "").replace(/[\\'"]/g, "");
-  const alt = words.map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
+  const isName = (w: string) => /[A-Za-z0-9]/.test(w);
+  if (words.some((w) => !isName(w) && plain.includes(w))) return true;
+  const names = words.filter(isName);
+  if (names.length === 0) return false;
+  const alt = names.map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
   return new RegExp(`(^|[^A-Za-z0-9_-])(${alt})($|[^A-Za-z0-9_-])`).test(plain);
 }
 
