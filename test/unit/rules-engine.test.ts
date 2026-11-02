@@ -18,7 +18,7 @@ const flagEcho: Rule = {
 describe("rule engine", () => {
   it("registers the category modules; exfiltration is an empty placeholder", async () => {
     expect(CATEGORIES).toEqual(["destructive", "file-tools", "secret-access", "exfiltration", "self-protection"]);
-    expect(secretAccess.map((r) => r.id)).toEqual(["secret-access/shell-read"]);
+    expect(secretAccess.map((r) => r.id)).toEqual(["secret-access/shell-read", "secret-access/env-dump"]);
     expect(exfiltration).toEqual([]);
     expect((await allRules()).every((r) => r.category !== "exfiltration")).toBe(true);
   });
@@ -110,6 +110,7 @@ describe("parse prefilter (triggers)", () => {
       "npm test", "ls -la", "cat notes.md", "rm -rf dist", "rm -rf ~", "r''m -rf ~", "\\rm -rf ~", '"rm" -rf src',
       "$'\\x72m' -rf ~", "git push -f origin main", "g\\it push -f origin main", "git reset --hard", "find ~ -delete",
       "chmod -R 777 ~", "sudo dd if=a.iso of=/dev/sdb", "mkfs.ext4 /dev/sdb1", "bash -c 'rm -rf ~'", "echo format",
+      "printenv", "env | sort", "export -p",
       "cat .env", "/bin/cat .env", "wc -l < .env", "c''at .env", "git show HEAD:.env",
     ];
     for (const command of commands) {

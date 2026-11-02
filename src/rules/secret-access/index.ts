@@ -2,6 +2,7 @@
 // environment. Secret-looking paths on Read/Write/Edit are file-tools/secret-path; both use
 // the same list (../secret-paths.ts). One rule per file.
 import type { Rule } from "../types.js";
+import { envDump } from "./env-dump.js";
 import { shellRead } from "./shell-read.js";
 
-export const rules: Rule[] = [shellRead];
+export const rules: Rule[] = [shellRead, envDump];
