@@ -24,7 +24,11 @@ Rules so far: recursive `rm` outside regenerable build folders, deleting or movi
 commands that discard work (`reset --hard`, `checkout -- .`, `restore`, `clean -dx`), force pushes, deleting
 branches (`git push --delete`, `git push origin :branch`, `git branch -D`), `git stash drop` / `clear`,
 `find -delete` / recursive `chmod`/`chown` outside the project, `dd`, `mkfs`, file writes outside the project, and
-Read/Write/Edit on secret-looking paths (`.env`, `*.pem`, `~/.ssh`). Veto follows the safe order inside one command:
+Read/Write/Edit on secret-looking paths (`.env`, `*.pem`, `*.key`, SSH keys, `~/.ssh`, `~/.aws/credentials`,
+`~/.npmrc`, `~/.netrc`, `*credentials*.json`; `.env.example`/`.sample`/`.template` are fine). Shell commands that read
+those same files are flagged too: `cat .env`, `grep PORT .env`, `wc -l < .env`, copying them, or printing them from git
+history (`git show HEAD:.env`, `git log -p -- .env`). Dumping the whole environment (`printenv`, `env`, `set`,
+`export -p`) is logged as low. Veto follows the safe order inside one command:
 `git stash && git reset --hard` is low (the changes are stashed first), while `git stash && git stash drop` is high.
 If Veto itself fails or crashes, or its config is invalid, the tool call goes ahead with no decision and the error
 goes to `.veto/errors.log`.
@@ -129,8 +133,10 @@ non-blocking "hook error" and nothing is logged.
   never reaches it.
 - **Sessions in folders without Veto installed.** The hook is installed per project (`veto init`). A Claude Code
   session started in a folder where you didn't run `veto init` isn't checked or logged at all.
-- **Secret access and exfiltration.** Those rule categories exist but are still empty: apart from Read/Write/Edit on
-  secret-looking paths, Veto doesn't yet catch reading secrets through the shell or sending data off the machine.
+- **Secrets outside the list, or behind a variable.** Secret checks go by file path (the list above), not file
+  contents, and a path in a variable, glob or `$(...)` (`cat $F`, `cat *.pem`) isn't flagged. Programs other than the
+  common readers (a script that opens `.env` itself, `python -c ...`) aren't caught either.
+- **Exfiltration.** That rule category exists but is still empty: Veto doesn't yet catch sending data off the machine.
 - **Every way to switch Veto off.** It blocks the direct routes (`veto allow`/`mode watch`/`uninstall` and writes into
   `.veto/` by the agent), not every script that could edit `.veto/` or `.claude/settings*.json`.
 
