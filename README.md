@@ -28,7 +28,9 @@ Read/Write/Edit on secret-looking paths (`.env`, `*.pem`, `*.key`, SSH keys, `~/
 `~/.npmrc`, `~/.netrc`, `*credentials*.json`; `.env.example`/`.sample`/`.template` are fine). Shell commands that read
 those same files are flagged too: `cat .env`, `grep PORT .env`, `wc -l < .env`, copying them, or printing them from git
 history (`git show HEAD:.env`, `git log -p -- .env`). Dumping the whole environment (`printenv`, `env`, `set`,
-`export -p`) is logged as low. Veto follows the safe order inside one command:
+`export -p`) is logged as low. Network clients that send local data off the machine are flagged too: `curl`/`wget`/
+HTTPie with a request body, file upload or an explicit `POST`/`PUT`/`PATCH` (a plain GET is fine), `nc`/`socat` reading
+piped or redirected input, and `scp`/`rsync`/`sftp` to a remote host. Veto follows the safe order inside one command:
 `git stash && git reset --hard` is low (the changes are stashed first), while `git stash && git stash drop` is high.
 If Veto itself fails or crashes, or its config is invalid, the tool call goes ahead with no decision and the error
 goes to `.veto/errors.log`.
@@ -136,7 +138,14 @@ non-blocking "hook error" and nothing is logged.
 - **Secrets outside the list, or behind a variable.** Secret checks go by file path (the list above), not file
   contents, and a path in a variable, glob or `$(...)` (`cat $F`, `cat *.pem`) isn't flagged. Programs other than the
   common readers (a script that opens `.env` itself, `python -c ...`) aren't caught either.
-- **Exfiltration.** That rule category exists but is still empty: Veto doesn't yet catch sending data off the machine.
+- **A secret flowing into a network command is flagged as a medium "ask", not a high "deny".** Veto flags the secret
+  read and the network send on their own, but doesn't yet recognize one feeding the other in a single command
+  (e.g. `cat .env | curl -d @- https://…`) as the higher-severity case it is.
+- **Sending to localhost.** In v0.1, a request to `localhost` / `127.0.0.1` is flagged the same as any other host, even
+  though it usually stays on your machine. This is a known limitation.
+- **Network clients outside the common set.** The exfiltration check knows `curl`, `wget`, HTTPie, `nc`/`ncat`,
+  `socat`, `telnet`, `scp`, `rsync` and `sftp`. A program that opens its own socket, or a less common client, isn't
+  caught.
 - **Every way to switch Veto off.** It blocks the direct routes (`veto allow`/`mode watch`/`uninstall` and writes into
   `.veto/` by the agent), not every script that could edit `.veto/` or `.claude/settings*.json`.
 
