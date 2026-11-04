@@ -42,7 +42,7 @@ function afterScript(w: Walked, scriptOpts: string[], fileOpts: string[]): Arg[]
 }
 
 /** The words of `c` naming files whose contents it reads, and the verb for the reason. */
-function readTargets(c: SimpleCommand): { verb: string; args: Arg[] } | null {
+export function readTargets(c: SimpleCommand): { verb: string; args: Arg[] } | null {
   if (c.program === null || c.programUnresolved) return null;
   const prog = basename(c.program);
   const words = c.argWords;
@@ -70,7 +70,7 @@ const NAMES_ONLY = ["--stat", "--name-only", "--name-status", "--numstat", "--sh
 const isPatchOpt = (o: string) => o === "-p" || o === "-u" || o === "--patch" || o.startsWith("--unified") || /^-U\d*$/.test(o) || o.startsWith("--patch-with");
 
 /** Paths whose contents a git show/log/diff call prints, and the verb. */
-function gitTargets(c: SimpleCommand, ctx: RuleContext): { verb: string; args: Arg[]; dir: string | null } | null {
+export function gitTargets(c: SimpleCommand, ctx: RuleContext): { verb: string; args: Arg[]; dir: string | null } | null {
   const g = gitCall(c, ctx);
   if (!g || !["show", "log", "diff"].includes(g.sub)) return null;
   const split = g.args.findIndex((a) => !a.unresolved && a.value === "--");
@@ -95,7 +95,7 @@ function gitTargets(c: SimpleCommand, ctx: RuleContext): { verb: string; args: A
 }
 
 /** How to show a path in the reason: ~ for home, otherwise as written. */
-function shown(value: string, ctx: RuleContext): string {
+export function shown(value: string, ctx: RuleContext): string {
   if (value.startsWith("/") && value.startsWith(ctx.home + sep)) return "~" + value.slice(ctx.home.length);
   return value;
 }

@@ -9,7 +9,7 @@ const ID = "secret-access/env-dump";
 const TIP = "Print only the variable you need (e.g. `printenv NODE_ENV`), or ask the user for the specific value you need.";
 
 /** What the command prints, or null when it isn't a full dump. */
-function dump(c: SimpleCommand): string | null {
+export function isEnvDump(c: SimpleCommand): string | null {
   if (c.program === null || c.programUnresolved) return null;
   const prog = basename(c.program);
   const args = c.argWords;
@@ -28,7 +28,7 @@ export const envDump: Rule = {
   check(ctx) {
     const out: Finding[] = [];
     for (const c of ctx.commands) {
-      const what = dump(c);
+      const what = isEnvDump(c);
       if (what) out.push({ ruleId: ID, category: "secret-access", severity: "low", reason: `${what}, which can include API keys and tokens.`, suggestion: TIP });
     }
     return out;

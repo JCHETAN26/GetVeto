@@ -19,7 +19,7 @@ describe("rule engine", () => {
   it("registers the category modules", async () => {
     expect(CATEGORIES).toEqual(["destructive", "file-tools", "secret-access", "exfiltration", "self-protection"]);
     expect(secretAccess.map((r) => r.id)).toEqual(["secret-access/shell-read", "secret-access/env-dump"]);
-    expect(exfiltration.map((r) => r.id)).toEqual(["exfiltration/network-send"]);
+    expect(exfiltration.map((r) => r.id)).toEqual(["exfiltration/secret-to-network", "exfiltration/network-send"]);
   });
 
   it("loads only the categories that apply to the tool", async () => {

@@ -14,7 +14,7 @@ const ID = "exfiltration/network-send";
 const TIP = "Show the user what you would send and ask first.";
 
 // curl options that take a value, so the URL operand is read cleanly (never as a header value).
-const CURL: OptionSpec = {
+export const CURL: OptionSpec = {
   short: "dFTXHouebcxAKDEw",
   long: [
     "--data", "--data-raw", "--data-ascii", "--data-binary", "--data-urlencode", "--json",
@@ -24,18 +24,18 @@ const CURL: OptionSpec = {
     "--dump-header", "--resolve", "--oauth2-bearer", "--aws-sigv4", "--cert-type", "--range",
   ],
 };
-const WGET: OptionSpec = {
+export const WGET: OptionSpec = {
   short: "OoPt",
   long: ["--output-document", "--post-data", "--post-file", "--body-data", "--body-file", "--method", "--header", "--referer", "--user-agent", "--directory-prefix"],
 };
 
-const DATA_OPTS = new Set(["-d", "-F", "-T", "--data", "--data-raw", "--data-ascii", "--data-binary", "--data-urlencode", "--json", "--form", "--form-string", "--upload-file"]);
-const METHODS = new Set(["POST", "PUT", "PATCH"]);
+export const DATA_OPTS = new Set(["-d", "-F", "-T", "--data", "--data-raw", "--data-ascii", "--data-binary", "--data-urlencode", "--json", "--form", "--form-string", "--upload-file"]);
+export const METHODS = new Set(["POST", "PUT", "PATCH"]);
 /** A value like @file or field=@file uploads a local file. */
-const uploadsFile = (v: string) => /(^|=)@/.test(v);
+export const uploadsFile = (v: string) => /(^|=)@/.test(v);
 
 /** Host of a URL (with scheme) or a bare host[:port][/path] (httpie), or null. */
-function urlHost(s: string): string | null {
+export function urlHost(s: string): string | null {
   let rest: string;
   const scheme = s.indexOf("://");
   if (scheme >= 0) rest = s.slice(scheme + 3);
@@ -50,7 +50,7 @@ function urlHost(s: string): string | null {
 }
 
 /** For `[user@]host:path` (scp/rsync/sftp remote spec), the host; null for a local path or URL. */
-function remoteHost(value: string): string | null {
+export function remoteHost(value: string): string | null {
   if (value.includes("://")) return null;
   const colon = value.indexOf(":");
   if (colon <= 0) return null;
@@ -60,7 +60,7 @@ function remoteHost(value: string): string | null {
 }
 
 /** Host nc/ncat/telnet/socat connects to, or null. */
-function listenerHost(prog: string, operands: Arg[]): string | null {
+export function listenerHost(prog: string, operands: Arg[]): string | null {
   const words = operands.filter((o) => !o.unresolved).map((o) => o.value);
   if (prog === "socat") {
     for (const w of words) {
@@ -74,13 +74,13 @@ function listenerHost(prog: string, operands: Arg[]): string | null {
 }
 
 /** nc/ncat/telnet/socat: is it listening (no outbound data) rather than connecting? */
-const isListening = (prog: string, c: SimpleCommand) =>
+export const isListening = (prog: string, c: SimpleCommand) =>
   prog !== "socat" && c.argWords.some((a) => !a.unresolved && (a.value === "-l" || a.value === "-lk" || a.value === "--listen" || (a.value.startsWith("-") && !a.value.startsWith("--") && a.value.includes("l"))));
 
 /** Does this command read input from a pipe or a file redirect (so it has something to send)? */
-const hasInput = (c: SimpleCommand) => c.pipeStage > 0 || c.redirects.some((r) => r.kind === "file" && r.op === "<");
+export const hasInput = (c: SimpleCommand) => c.pipeStage > 0 || c.redirects.some((r) => r.kind === "file" && r.op === "<");
 
-function httpFinding(prog: string, c: SimpleCommand): { host: string | null } | null {
+export function httpFinding(prog: string, c: SimpleCommand): { host: string | null } | null {
   const spec = prog === "wget" ? WGET : CURL;
   const w = walkOptions(c.argWords, spec);
   const optNames = w.opts.map((o) => o.name);
