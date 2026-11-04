@@ -4,14 +4,24 @@ All notable changes to Veto are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and Veto uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.1.0] — 2026-11-01
+## [0.1.0] — 2026-11-03
 
-First public preview. Veto is a local hook for Claude Code that reviews each tool call against a
-set of rules and, in guard mode, blocks the dangerous ones. Rules-based today; a model-based
-reviewer is planned.
+First public release. Veto is a local safety layer for Claude Code that reviews each tool call against a
+set of rules and, in guard mode, blocks dangerous ones before they run. 100% local, sub-35ms p95 latency.
 
 ### Added
 
+- **Exfiltration / Secret-to-network (`exfiltration/secret-to-network`)**: High-severity rule that blocks
+  local secrets or environment dumps flowing into network clients (`curl`, `wget`, `nc`, `socat`, `scp`,
+  `rsync`, `sftp`). Detects piped data (`cat .env | curl`), direct uploads (`curl -d @.env`,
+  `wget --post-file .env`), input redirection (`nc host < ~/.ssh/id_rsa`), and command substitutions (`curl -d "$(cat .env)"`).
+- **Hook Settings Self-Protection**: Self-protection rules now guard `.claude/settings.json` and
+  `.claude/settings.local.json` against agent tampering in addition to `.veto/`.
+- **Red-Team Benchmark Dataset**: 34 verified labeled fixtures (`test/fixtures/redteam/`) spanning all
+  six evaluation categories (benign, destructive, secret-access, exfiltration, injection-driven, other) with
+  100% detection on attack fixtures and 0 false positives on benign fixtures.
+- **Interactive Demo Runner**: Added `npm run demo` and VHS tape configuration (`scripts/demo.tape`) to
+  visualize Veto guardrail enforcement in the terminal.
 - **`veto init`** installs the `PreToolUse` hook into a project's Claude Code settings
   (`.claude/settings.local.json`, or `--shared` for the committed `settings.json`), writes an
   absolute node + CLI path so it works when Claude Code is launched without a shell PATH, and

