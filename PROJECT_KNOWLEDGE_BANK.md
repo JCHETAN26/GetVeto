@@ -143,7 +143,7 @@ For comprehensive comparative analysis across Meta Llama Guard 3, NVIDIA NeMo Gu
 *Key Architectural Differentials:*
 1. **Zero External Inference Overhead:** LLM-as-a-judge incurs 450–1,400 ms latency per tool call and requires high-VRAM GPUs. Veto parses deterministic ASTs in sub-millisecond time on developer CPUs.
 2. **Zero-Trust Confidentiality:** Cloud security proxies (Lakera, Portkey) require sending private enterprise code and file paths across the WAN. Veto operates 100% offline with zero telemetry and POSIX `0600` local logs.
-3. **Deterministic AST Immunity:** Stochastic model guards are vulnerable to prompt injection suffixes and formatting tricks. Veto analyzes concrete Bash syntax nodes, redirections, and pipeline stages regardless of how the command was prompted.
+3. **Deterministic AST Evaluation:** Stochastic model guards can be tricked by prompt injection wrappers. Veto analyzes concrete Bash syntax nodes, redirections, and pipeline stages directly (with the known boundary that interpreted runtime code like python -c or eval is out of scope).
 
 *Benchmark Configuration Summary:*
 Linux benchmarks executed on a 16-core AMD/Intel workstation running Node v22.14.0 (`powersave` governor, background load average 2.4–4.8). macOS timing tests executed on Apple Silicon running Node v22.12.0. Latency tests run interleaved (alternating builds per iteration) across 200 to 300 cycles per payload type using real captured Claude Code fixtures.

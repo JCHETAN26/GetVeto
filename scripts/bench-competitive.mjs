@@ -117,7 +117,7 @@ const competitiveMatrix = [
     networkReq: "0 (Air-Gapped / Offline)",
     hardwareReq: "0 GPU / <35 MB RAM",
     costPer1k: "$0.00",
-    jailbreakResistant: "Yes (Deterministic AST parse)",
+    jailbreakResistant: "Syntax-level (ignores prompt framing; bypassable via runtime eval/scripts)",
     dataPrivacy: "100% Local (chmod 0600 logs)"
   },
   {
@@ -187,12 +187,13 @@ if (jsonOutput) {
   console.log("\n================================================================================");
   console.log("             GETVETO COMPETITIVE BENCHMARK & ARCHITECTURAL COMPARISON            ");
   console.log("================================================================================\n");
-  console.log(`Evaluated ${fixtures.length} PreToolUse fixtures across ${iterations} iterations (${timings.length} total evaluations):`);
+  console.log(`Evaluated ${fixtures.length} curated PreToolUse fixtures (21 real captures + 25 synthetic tests) across ${iterations} iterations (${timings.length} evaluations):`);
   console.log(`  • Engine latency p50: ${p50Ms} ms (${p50Us.toFixed(1)} µs)`);
   console.log(`  • Engine latency p95: ${p95Ms} ms (${p95Us.toFixed(1)} µs)`);
   console.log(`  • Engine latency p99: ${p99Ms} ms (${p99Us.toFixed(1)} µs)`);
-  console.log(`  • Single-pass catch rate: ${totalCaught}/${expectedAttacks} (${((totalCaught / expectedAttacks) * 100).toFixed(1)}%)`);
-  console.log(`  • False positive rate:    ${totalBenign - totalBenignClean}/${totalBenign} (0.0%)`);
+  console.log(`  • Modeled threat catch rate: ${totalCaught}/${expectedAttacks} (${((totalCaught / expectedAttacks) * 100).toFixed(1)}% on curated fixtures)`);
+  console.log(`  • Benign false positive rate: ${totalBenign - totalBenignClean}/${totalBenign} (0.0% on curated fixtures)`);
+  console.log(`  • Note: Measures regression against curated threat fixtures; does not guarantee open-world containment of novel obfuscations.`);
   console.log(`  • Total package tarball:  80.3 kB (0 runtime dependencies)`);
   console.log(`  • Memory delta during run: ${memDeltaMB} MB\n`);
 
@@ -213,12 +214,12 @@ if (jsonOutput) {
 
   console.log("\n================================================================================");
   console.log("KEY TAKEAWAYS:");
-  console.log("1. LATENCY: Veto operates in <1.5 ms in-engine (<30 ms cold CLI), 20x-500x faster");
-  console.log("   than LLM-as-a-judge (350-900 ms) and cloud gateways (85-250 ms).");
-  console.log("2. ZERO TRUST: 100% offline with 0 network calls. Never leaks proprietary code or");
-  console.log("   secret paths to remote APIs or hosted LLM endpoints.");
-  console.log("3. DETERMINISTIC: Shell AST parsing cannot be confused by adversarial prompting,");
-  console.log("   roleplay wrappers, or token obfuscations.");
-  console.log("4. ZERO COST & INFRASTRUCTURE: $0 token cost, 0 GPU memory requirements.");
+  console.log("1. LATENCY: Veto operates in <1.5 ms in-engine (<30 ms cold CLI), fast enough to run");
+  console.log("   synchronously on every tool call without human-perceptible lag.");
+  console.log("2. ZERO TRUST & PRIVACY: 100% offline with 0 network calls. Never leaks proprietary");
+  console.log("   code or secret paths to external APIs or third-party LLMs.");
+  console.log("3. DETERMINISTIC SYNTAX: Parses concrete Bash ASTs regardless of prompt framing or roleplay,");
+  console.log("   though it does not emulate runtime execution or dynamic script interpreters.");
+  console.log("4. ZERO COST & FOOTPRINT: $0 token overhead, runs on any developer laptop with Node.");
   console.log("================================================================================\n");
 }

@@ -84,14 +84,14 @@ and the reason tells you to run it yourself if you agree.
 
 Veto is built for real-time developer workflows where every millisecond counts. Unlike LLM-as-a-judge approaches or cloud security proxies, Veto evaluates deterministic ASTs locally with 0 network calls and 0 token cost.
 
-| Metric / Dimension | **GetVeto (v0.1.0)** | **Llama Guard 3 (8B)** | **NVIDIA NeMo** | **Lakera / Portkey** | **Claude Code Prompts** |
+| Metric / Dimension | **GetVeto (v0.1)** | **Llama Guard 3 (8B)** | **NVIDIA NeMo** | **Lakera / Portkey** | **Claude Code Prompts** |
 |---|---|---|---|---|---|
-| **In-Engine Latency (p50)** | **0.043 ms (43 µs)** | ~450 ms | ~280 ms | ~85 ms | 0 ms |
+| **In-Engine Latency (p50)** | **0.038 ms (38 µs)** | ~450 ms | ~280 ms | ~85 ms | 0 ms |
 | **CLI Process Latency (p95)** | **<30 ms** | 850 – 1,400 ms | 600 – 1,100 ms | 200 – 450 ms (WAN) | 2,000 – 30,000 ms (Human) |
 | **Network & Privacy** | **100% Offline (Air-Gapped)** | Local GPU or Cloud | Cloud LLM backend | Cloud API Gateway | 100% Local |
 | **Hardware Required** | **0 GPU, <35 MB RAM** | 16 GB+ VRAM GPU | 8 GB+ RAM + Python | Cloud managed | Minimal |
 | **Cost per 1k Calls** | **$0.00** | ~$1.50 – $3.00 | ~$1.20 – $2.50 | ~$2.00 – $5.00 | $0.00 (Developer time) |
-| **Jailbreak Immunity** | **Deterministic AST parse** | Stochastic / Prompt jailbreaks | Mixed | Stochastic / Heuristic | Developer prompt fatigue |
+| **Prompt Jailbreak Resilience** | **Syntax-level (ignores prompt framing; bypassable via scripts/eval)** | Stochastic / Vulnerable to prompt jailbreaks | Mixed | Stochastic / Heuristic | Developer prompt fatigue |
 
 _Read the full architectural deep dive and methodology in [docs/COMPETITIVE_ANALYSIS.md](docs/COMPETITIVE_ANALYSIS.md). Run benchmarks yourself with `npm run bench:competitive`._
 
