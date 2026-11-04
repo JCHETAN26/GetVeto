@@ -4,6 +4,12 @@ All notable changes to Veto are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and Veto uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.1] — 2026-11-04
+
+### Changed
+- **CLI Binary Aliases**: Added `getveto` binary alias to `package.json` so `npx getveto` executes directly without package flag specification.
+- **Benchmarks & Documentation**: Added transparent competitive analysis ([docs/COMPETITIVE_ANALYSIS.md](docs/COMPETITIVE_ANALYSIS.md)) and runner (`npm run bench:competitive`) with clear evaluation boundaries against model-based guardrails.
+
 ## [0.1.0] — 2026-11-03
 
 First public release. Veto is a local safety layer for Claude Code that reviews each tool call against a
