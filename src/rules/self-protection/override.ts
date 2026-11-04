@@ -47,10 +47,12 @@ function vetoCommand(c: SimpleCommand): string | null {
   return null;
 }
 
-/** Is abs inside <project>/.veto? */
-function inVetoDir(abs: string, ctx: RuleContext): boolean {
+/** Is abs inside <project>/.veto or <project>/.claude/settings*.json? */
+function inProtectedTarget(abs: string, ctx: RuleContext): "veto" | "claude" | null {
   const rel = relative(ctx.projectRoot, abs);
-  return rel === ".veto" || rel.startsWith(".veto" + sep);
+  if (rel === ".veto" || rel.startsWith(".veto" + sep)) return "veto";
+  if (rel.startsWith(".claude" + sep) && rel.includes("settings")) return "claude";
+  return null;
 }
 
 const FILE_TOOLS = new Set(["Write", "Edit", "MultiEdit", "NotebookEdit"]);
@@ -58,15 +60,20 @@ const FILE_TOOLS = new Set(["Write", "Edit", "MultiEdit", "NotebookEdit"]);
 export const selfOverride: Rule = {
   id: ID,
   category: "self-protection",
-  // Words that appear in every case above: the CLI's name, its script, or the .veto folder.
+  // Words that appear in every case above: the CLI's name, its script, the .veto folder, or .claude settings.
   // (Bash only: file tools always reach check.)
-  triggers: ["veto", "getveto", "cli.js", "veto.js"],
+  triggers: ["veto", "getveto", "cli.js", "veto.js", ".veto", ".claude"],
   check(ctx) {
     const out: Finding[] = [];
     if (FILE_TOOLS.has(ctx.toolName ?? "")) {
       const p = ctx.toolInput.file_path ?? ctx.toolInput.notebook_path;
-      if (typeof p === "string" && p !== "" && inVetoDir(resolvePath(p, ctx.cwd ?? ctx.projectRoot, ctx.home), ctx)) {
-        out.push(finding(`${ctx.toolName} on Veto's own files (${p}) could change what Veto blocks; only the user should edit .veto/.`));
+      if (typeof p === "string" && p !== "") {
+        const prot = inProtectedTarget(resolvePath(p, ctx.cwd ?? ctx.projectRoot, ctx.home), ctx);
+        if (prot === "veto") {
+          out.push(finding(`${ctx.toolName} on Veto's own files (${p}) could change what Veto blocks; only the user should edit .veto/.`));
+        } else if (prot === "claude") {
+          out.push(finding(`${ctx.toolName} on Claude Code settings (${p}) could disable Veto's hook; only the user should edit hook settings.`));
+        }
       }
       return out;
     }
@@ -75,8 +82,11 @@ export const selfOverride: Rule = {
       if (v) out.push(finding(`${v} run by the agent would override Veto; the user must run it in their own terminal.`));
       for (const r of c.redirects) {
         if (r.kind !== "file" || !r.op.includes(">") || r.target === null || r.unresolved) continue;
-        if (inVetoDir(resolvePath(r.target, c.cwd ?? ctx.projectRoot, ctx.home), ctx)) {
+        const prot = inProtectedTarget(resolvePath(r.target, c.cwd ?? ctx.projectRoot, ctx.home), ctx);
+        if (prot === "veto") {
           out.push(finding(`A shell redirect writes to Veto's own files (${r.target}); only the user should edit .veto/.`));
+        } else if (prot === "claude") {
+          out.push(finding(`A shell redirect writes to Claude Code settings (${r.target}); only the user should edit hook settings.`));
         }
       }
     }
