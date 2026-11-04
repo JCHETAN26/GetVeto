@@ -1,6 +1,6 @@
 {
   "name": "getveto",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Veto is a local safety layer for Claude Code and other AI coding agents: it reviews each tool call against rules and, in guard mode, blocks the dangerous ones. Your agent proposes. You veto.",
   "keywords": [
     "claude-code",
