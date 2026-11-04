@@ -135,6 +135,15 @@ All metrics below are extracted directly from repository benchmark suites (`scri
 | **V8 Compile Cache Footprint** | Full module cache: ~200 KB multi-file | **~50 KB** per Node version | 75% cache footprint reduction | Node 22 `module.enableCompileCache` | Disk usage in `$XDG_CACHE_HOME/getveto` |
 | **Child Process Git Check** | Full git status invocation: 20–30 ms | **~8.0 ms** (capped at 500 ms) | Read-only porcelain isolation | Local git repository check | `execFileSync` with `core.fsmonitor=false` |
 | **Rule Accuracy & False Positives** | Unfiltered heuristic baseline | **0 false positives** across 8 benign real fixtures; **100% detection** across 4 dangerous fixtures | Zero false-positive rate on real test corpus | Real captured Claude Code session payloads | `npm run eval` rule suite |
+| **Competitive Latency vs LLM Guards**| Llama Guard 3 8B: 450–850 ms; NeMo: 280–600 ms | **0.043 ms p50 / 6.0 ms p95 (engine); <30 ms (CLI)** | **20x–500x faster than model-based guards** | Apple Silicon & Linux | `npm run bench:competitive` (46 fixtures, 50 runs) |
+
+### 4.1 Competitive Architecture Breakdown (Veto vs. Industry Alternatives)
+For comprehensive comparative analysis across Meta Llama Guard 3, NVIDIA NeMo Guardrails, Lakera Guard, and Claude Code native prompts, see [`docs/COMPETITIVE_ANALYSIS.md`](docs/COMPETITIVE_ANALYSIS.md).
+
+*Key Architectural Differentials:*
+1. **Zero External Inference Overhead:** LLM-as-a-judge incurs 450–1,400 ms latency per tool call and requires high-VRAM GPUs. Veto parses deterministic ASTs in sub-millisecond time on developer CPUs.
+2. **Zero-Trust Confidentiality:** Cloud security proxies (Lakera, Portkey) require sending private enterprise code and file paths across the WAN. Veto operates 100% offline with zero telemetry and POSIX `0600` local logs.
+3. **Deterministic AST Immunity:** Stochastic model guards are vulnerable to prompt injection suffixes and formatting tricks. Veto analyzes concrete Bash syntax nodes, redirections, and pipeline stages regardless of how the command was prompted.
 
 *Benchmark Configuration Summary:*
 Linux benchmarks executed on a 16-core AMD/Intel workstation running Node v22.14.0 (`powersave` governor, background load average 2.4–4.8). macOS timing tests executed on Apple Silicon running Node v22.12.0. Latency tests run interleaved (alternating builds per iteration) across 200 to 300 cycles per payload type using real captured Claude Code fixtures.

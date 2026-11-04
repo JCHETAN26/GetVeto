@@ -28,7 +28,8 @@
   "license": "MIT",
   "type": "module",
   "bin": {
-    "veto": "dist/cli.js"
+    "veto": "dist/cli.js",
+    "getveto": "dist/cli.js"
   },
   "files": [
     "dist/",
@@ -49,6 +50,7 @@
     "redteam:stats": "npm run -s build && node scripts/redteam-stats.mjs",
     "bench": "npm run -s build && node scripts/bench-hook.mjs --only-pre --bash && node scripts/bench-hook.mjs --only-pre --non-bash && node scripts/bench-hook.mjs --only-pre --bash --guard && node scripts/bench-hook.mjs --only-pre --non-bash --guard && node scripts/bench-parse.mjs",
     "eval": "npm run -s build && node scripts/eval-rules.mjs",
+    "bench:competitive": "npm run -s build && node scripts/bench-competitive.mjs",
     "demo": "node scripts/demo.mjs",
     "redteam:fixtures": "node scripts/generate-redteam-fixtures.mjs"
   },
